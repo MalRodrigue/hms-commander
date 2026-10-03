@@ -530,7 +530,13 @@ class TestSelectionAndApplicability:
             TexasStorm.generate_hyetograph(5.0, 10, "lgamma", drainage_area_sqmi=bad)
 
     @pytest.mark.parametrize(
-        "name", ["total_depth_inches", "duration_hours", "drainage_area_sqmi"]
+        "name",
+        [
+            "total_depth_inches",
+            "duration_hours",
+            "drainage_area_sqmi",
+            "time_interval_min",
+        ],
     )
     @pytest.mark.parametrize("bad", [True, np.bool_(True)])
     def test_physical_quantities_reject_booleans(self, name, bad):

@@ -498,6 +498,7 @@ class TexasStorm:
         for name, val in (
             ("total_depth_inches", total_depth_inches),
             ("duration_hours", duration_hours),
+            ("time_interval_min", time_interval_min),
         ):
             TexasStorm._validate_positive_physical_quantity(name, val)
         if drainage_area_sqmi is not None:
