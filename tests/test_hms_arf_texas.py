@@ -358,6 +358,14 @@ def test_size_argument_validation():
     assert HmsArfTexas.circular_arf("austin", math.pi * 4, **T) == pytest.approx(
         HmsArfTexas.circular_arf("austin", radius_mi=2, **T)
     )
+    for bad in (-1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            HmsArfTexas.circular_arf("austin", area_mi2=bad, **T)
+        with pytest.raises(ValueError):
+            HmsArfTexas.radius_from_area(bad)
+    for bad in (-1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            HmsArfTexas.circular_arf("austin", radius_mi=bad, **T)
 
 
 def test_noncircular_validation():
@@ -369,6 +377,14 @@ def test_noncircular_validation():
         HmsArfTexas.noncircular_arf("austin", [1, 51], [1.0, 1.0], **T)
     # a single cell at the centroid has no reduction
     assert HmsArfTexas.noncircular_arf("dallas", [0], [3.0], **T) == 1.0
+
+
+def test_noncircular_arf_normalizes_large_cell_areas():
+    arf = HmsArfTexas.noncircular_arf("houston", [1, 1], [1e308, 1e308], **T)
+    assert arf == pytest.approx(
+        HmsArfTexas.noncircular_arf("houston", [1, 1], [1, 1], **T)
+    )
+    assert arf == pytest.approx(0.88)
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +408,40 @@ def test_scale_hyetograph_types():
     )
     with pytest.raises(ValueError):
         HmsArfTexas.scale_hyetograph(inc, "dallas", 50.3, duration_hr=6, **T)
+
+
+@pytest.mark.parametrize(
+    "depths",
+    [
+        -1.0,
+        float("nan"),
+        float("inf"),
+        [1.0, -1.0],
+        np.array([1.0, np.nan]),
+        pd.Series([1.0, np.inf]),
+        pd.DataFrame({"depth": [1.0, -1.0]}),
+    ],
+)
+def test_scale_helpers_reject_nonfinite_or_negative_depths(depths):
+    for method in (HmsArfTexas.scale_depth, HmsArfTexas.scale_hyetograph):
+        with pytest.raises(ValueError, match="finite numbers >= 0"):
+            method(depths, "houston", radius_mi=1, **T)
+
+
+@pytest.mark.parametrize("radius_mi", [1e155, 1e308])
+@pytest.mark.parametrize("extrapolate", [False, True])
+def test_huge_finite_radii_raise_value_error(radius_mi, extrapolate):
+    kwargs = dict(radius_mi=radius_mi, extrapolate=extrapolate, **T)
+    for method, depths in (
+        (HmsArfTexas.circular_arf, None),
+        (HmsArfTexas.scale_depth, 1.0),
+        (HmsArfTexas.scale_hyetograph, [1.0]),
+    ):
+        with pytest.raises(ValueError):
+            if depths is None:
+                method("houston", **kwargs)
+            else:
+                method(depths, "houston", **kwargs)
 
 
 def test_existing_hmsarf_untouched():

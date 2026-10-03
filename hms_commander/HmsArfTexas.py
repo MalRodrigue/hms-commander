@@ -186,6 +186,17 @@ class HmsArfTexas:
         )
 
     @staticmethod
+    def _validate_depths(depths) -> np.ndarray:
+        """Return numeric depths after requiring finite, nonnegative values."""
+        try:
+            values = np.asarray(depths, dtype=float)
+        except (TypeError, ValueError):
+            raise ValueError("depths must be finite numbers >= 0") from None
+        if not np.all(np.isfinite(values)) or np.any(values < 0):
+            raise ValueError("depths must be finite numbers >= 0")
+        return values
+
+    @staticmethod
     def _segment(
         city: str,
         r: float,
@@ -319,8 +330,9 @@ class HmsArfTexas:
             c, r, extrapolate, dallas_intercept_correction
         )
         # r -> 0 limit: the first segment has k == 0, so ARF -> a (= 1.0).
-        # Skipping the k term avoids 0/0 when r**2 underflows.
-        arf = a - b * r + (k / r**2 if k != 0 else 0.0)
+        # The domain is checked above before evaluating this term. Dividing twice
+        # avoids overflow when an extrapolated finite radius is extremely large.
+        arf = a - b * r + (k / r / r if k != 0 else 0.0)
         if not 0 < arf <= 1:
             raise ValueError(
                 f"Computed ARF {arf:.4f} at radius {r:.3f} mi is outside (0, 1]; "
@@ -375,7 +387,11 @@ class HmsArfTexas:
         s2 = np.array(
             [HmsArfTexas.depth_distance(c, x, extrapolate=extrapolate) for x in d]
         )
-        arf = float(np.sum(s2 * a) / np.sum(a))
+        max_area = float(np.max(a))
+        weights = a / max_area
+        arf = math.fsum(float(x * w) for x, w in zip(s2, weights)) / math.fsum(
+            float(w) for w in weights
+        )
         if not 0 < arf <= 1:
             raise ValueError(f"Computed ARF {arf:.4f} is outside (0, 1]")
         return arf
@@ -394,11 +410,18 @@ class HmsArfTexas:
         dallas_intercept_correction: bool = False,
     ):
         """
-        Multiply a 1-day point depth (any depth unit) by the circular ARF.
+        Multiply a finite, nonnegative 1-day point depth (any depth unit) by
+        the circular ARF.
 
-        Accepts a scalar, array or pandas object; returns the same kind.
+        Accepts a scalar, list, numpy array or pandas object; returns the same
+        kind (lists are returned as numpy arrays).
         Parameters other than ``depth`` are as in :meth:`circular_arf`.
+
+        Raises:
+            ValueError: any non-finite or negative depth, or a validation
+                failure from :meth:`circular_arf`.
         """
+        values = HmsArfTexas._validate_depths(depth)
         arf = HmsArfTexas.circular_arf(
             city,
             area_mi2,
@@ -408,7 +431,11 @@ class HmsArfTexas:
             extrapolate=extrapolate,
             dallas_intercept_correction=dallas_intercept_correction,
         )
-        return depth * arf
+        if values.ndim == 0:
+            return float(values) * arf
+        if isinstance(depth, (list, tuple, np.ndarray)):
+            return values * arf
+        return depth.astype(float) * arf
 
     @staticmethod
     @log_call
@@ -428,10 +455,13 @@ class HmsArfTexas:
 
         The published factor is a single value for the whole 1-day storm, so
         the temporal pattern is preserved and the total depth is scaled by
-        the ARF. Accepts a list, numpy array or pandas Series/DataFrame.
+        the ARF. Depths must be finite and nonnegative. Accepts a list, numpy
+        array or pandas Series/DataFrame.
+
+        Raises:
+            ValueError: any non-finite or negative depth, or a validation
+                failure from :meth:`circular_arf`.
         """
-        if isinstance(incremental_depths, (list, tuple)):
-            incremental_depths = np.asarray(incremental_depths, dtype=float)
         return HmsArfTexas.scale_depth(
             incremental_depths,
             city,

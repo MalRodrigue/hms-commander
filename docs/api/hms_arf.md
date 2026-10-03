@@ -22,10 +22,12 @@ greater, circular-equivalent radius 0-50 mi, and the three study areas.
 `extrapolate=True` relaxes only the radius/area domain (beyond 50 mi, with a
 logged warning). A duration other than 24 hr and a recurrence interval below
 2 years always raise `ValueError`, regardless of `extrapolate`; WRIR 99-4267
-(p. 25) limits the method to the one-day duration. A computed ARF or S2 outside
-(0, 1] also always raises `ValueError` from `circular_arf`, `noncircular_arf`,
-`depth_distance` and therefore `scale_depth` and `scale_hyetograph`; this can
-occur only with `extrapolate=True`. The TxDOT HDM
+(p. 25) limits the method to the one-day duration. Non-finite or negative
+circular radii/areas and scaling depths raise `ValueError`; cell areas must
+also be positive. A computed ARF or S2 outside (0, 1] also raises `ValueError`
+from `circular_arf`, `noncircular_arf`, `depth_distance` and therefore
+`scale_depth` and `scale_hyetograph`; this can occur only with
+`extrapolate=True`. The TxDOT HDM
 cautions that applicability diminishes with distance from Austin, Dallas and
 Houston and as the design-storm duration departs from 1 day; the module does
 not check the watershed location.
