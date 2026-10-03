@@ -22,14 +22,23 @@ Explicit choices (no silent defaults):
       by the sources in a way this module can apply, so a duration that falls
       on a boundary requires an explicit ``duration_class``.
     - The empirical ``quartile`` must be given.
+    - A few published empirical columns decrease slightly with time. By
+      default (``nonmonotone="raise"``) generation raises ``ValueError``;
+      ``nonmonotone="running_max"`` applies a running maximum and records the
+      adjustment in the provenance.
 
 Applicability limits (from the sources):
     - Empirical curves were developed for small watersheds, less than about
-      160 square miles (SIR 2004-5075; HDM). A ``UserWarning`` is issued when
-      ``drainage_area_sqmi`` exceeds ``MAX_DRAINAGE_AREA_SQMI``.
+      160 square miles (SIR 2004-5075; HDM 2019 p. 4-77). A ``UserWarning`` is
+      issued for the empirical method when ``drainage_area_sqmi`` exceeds
+      ``MAX_DRAINAGE_AREA_SQMI``. The sources state this limit for the
+      empirical curves only.
     - All three models are for storms of at least 1 inch of rainfall; a
       warning is issued for smaller depths.
-    - Storm durations up to 72 hr.
+    - Storm durations up to 72 hr. The ``nws_hourly`` triangular set covers
+      5-12, 13-24 and 25-72 hr (HDM Table 4-13, p. 4-74); durations between
+      the classes (12-13 and 24-25 hr) and below 5 hr are not supported and
+      are rejected.
 
 Output follows the sibling storm classes: a DataFrame with ``hour``,
 ``incremental_depth`` and ``cumulative_depth`` columns and a t=0 zero row.
@@ -61,6 +70,7 @@ References:
     Chapter 4, Section 13 (Equations 4-26 to 4-28, Tables 4-13 to 4-16).
 """
 
+import math
 import warnings
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
@@ -165,8 +175,8 @@ class TexasStorm:
             Cumulative fraction of total storm depth, same shape as ``F``.
         """
         F = np.asarray(F, dtype=float)
-        p1 = F ** 2 / a
-        p2 = -(F ** 2) / b + (2.0 * a / b + 2.0) * F - (a ** 2 / b + a)
+        p1 = F**2 / a
+        p2 = -(F**2) / b + (2.0 * a / b + 2.0) * F - (a**2 / b + a)
         return np.where(F <= a, p1, p2)
 
     @staticmethod
@@ -180,7 +190,7 @@ class TexasStorm:
             c: Shape parameter (HDM Table 4-15).
         """
         F = np.asarray(F, dtype=float)
-        return F ** b * np.exp(c * (1.0 - F))
+        return F**b * np.exp(c * (1.0 - F))
 
     # ------------------------------------------------------------------
     # Empirical tables
@@ -267,6 +277,13 @@ class TexasStorm:
             )
         return out.reset_index(drop=True)
 
+    @staticmethod
+    def _supplement_page(trimmed: bool, quartile: str, duration_class: str) -> int:
+        """Printed SIR page of a supplement table (Supp. 4 starts p. 76, 5 p. 101)."""
+        q = TexasStorm.EMPIRICAL_QUARTILES.index(quartile)
+        c = TexasStorm.EMPIRICAL_DURATION_CLASSES.index(duration_class)
+        return (101 if trimmed else 76) + 5 * q + c
+
     # ------------------------------------------------------------------
     # Class selection and validation
     # ------------------------------------------------------------------
@@ -302,8 +319,8 @@ class TexasStorm:
         if not matches:
             raise ValueError(
                 f"duration_hours={duration_hours} is not covered by any class "
-                f"for {what}: {tuple(classes)}. Pass duration_class explicitly "
-                "if it applies."
+                f"for {what}: {tuple(classes)}. This duration is unsupported; "
+                "an explicit duration_class does not override it."
             )
         raise ValueError(
             f"duration_hours={duration_hours} falls on a boundary between "
@@ -313,7 +330,9 @@ class TexasStorm:
 
     @staticmethod
     def _check_applicability(
-        total_depth_inches: float, drainage_area_sqmi: Optional[float]
+        total_depth_inches: float,
+        drainage_area_sqmi: Optional[float],
+        method: str,
     ) -> None:
         if total_depth_inches < TexasStorm.MIN_STORM_DEPTH_INCHES:
             msg = (
@@ -322,18 +341,20 @@ class TexasStorm:
             )
             logger.warning(msg)
             warnings.warn(msg, UserWarning, stacklevel=3)
+        if method != "empirical":
+            return
         if drainage_area_sqmi is None:
             logger.info(
-                "Texas hyetographs were developed for watersheds smaller than "
-                f"about {TexasStorm.MAX_DRAINAGE_AREA_SQMI:.0f} mi2; "
-                "drainage_area_sqmi not provided, limit not checked."
+                "The Texas empirical hyetographs were developed for watersheds "
+                f"smaller than about {TexasStorm.MAX_DRAINAGE_AREA_SQMI:.0f} "
+                "mi2; drainage_area_sqmi not provided, limit not checked."
             )
         elif drainage_area_sqmi > TexasStorm.MAX_DRAINAGE_AREA_SQMI:
             msg = (
                 f"Drainage area {drainage_area_sqmi} mi2 exceeds the approximate "
-                f"{TexasStorm.MAX_DRAINAGE_AREA_SQMI:.0f} mi2 limit of the Texas "
-                "empirical/triangular/L-gamma hyetograph data (SIR 2004-5075; "
-                "HDM 2019)."
+                f"{TexasStorm.MAX_DRAINAGE_AREA_SQMI:.0f} mi2 limit stated for "
+                "the Texas empirical hyetographs (SIR 2004-5075; HDM 2019 "
+                "p. 4-77)."
             )
             logger.warning(msg)
             warnings.warn(msg, UserWarning, stacklevel=3)
@@ -354,6 +375,7 @@ class TexasStorm:
         param_set: Optional[str] = None,
         duration_class: Optional[str] = None,
         drainage_area_sqmi: Optional[float] = None,
+        nonmonotone: str = "raise",
     ) -> pd.DataFrame:
         """
         Generate a Texas dimensionless hyetograph scaled to a depth and duration.
@@ -372,10 +394,19 @@ class TexasStorm:
             param_set: Required for 'triangular': 'usgs_runoff' or
                 'nws_hourly'. See ``TRIANGULAR_PARAMETER_SETS`` for sources.
             duration_class: Optional explicit class. Required when
-                ``duration_hours`` falls on a class boundary (for example 12 hr)
-                or, for the 'nws_hourly' set, between classes.
-            drainage_area_sqmi: Optional watershed area. A ``UserWarning`` is
-                issued above ``MAX_DRAINAGE_AREA_SQMI`` (160 mi2).
+                ``duration_hours`` falls on a class boundary (for example
+                12 hr). It cannot make an unsupported duration valid: the
+                'nws_hourly' set rejects 12-13 hr, 24-25 hr and durations
+                under 5 hr (HDM Table 4-13, p. 4-74).
+            drainage_area_sqmi: Optional watershed area; must be finite and
+                positive if given. For 'empirical' only, a ``UserWarning`` is
+                issued above ``MAX_DRAINAGE_AREA_SQMI`` (160 mi2; SIR
+                2004-5075, HDM p. 4-77).
+            nonmonotone: Empirical only. 'raise' (default) raises
+                ``ValueError`` if the selected published column decreases with
+                time. 'running_max' applies the running maximum and records
+                the number of adjusted ordinates and the maximum adjustment
+                (percent points) in the provenance.
 
         Returns:
             pd.DataFrame with columns:
@@ -386,16 +417,19 @@ class TexasStorm:
             ``attrs['provenance']`` records the source and selections.
 
         Raises:
-            ValueError: Invalid or ambiguous selections, durations over 72 hr,
-                an interval that does not divide the duration, or an empirical
-                curve for which the source gives no data.
+            ValueError: Non-finite or non-positive depth, duration or area;
+                invalid or ambiguous selections; durations over 72 hr or in an
+                unsupported gap; an interval that does not divide the
+                duration; an empirical curve for which the source gives no
+                data; or a non-monotone published column with
+                ``nonmonotone='raise'``.
 
         Note:
             For 'empirical', the tabulated curve (values at the centers of
             2.5-percent intervals) is linearly interpolated with (0, 0) and
-            (100, 100) added as end points. If a published column decreases
-            slightly with time (a smoothing artifact in a few columns), the
-            running maximum is used and a warning is logged.
+            (100, 100) added as end points (as in HDM Table 4-16). If a
+            published column decreases with time (8 of the tabulated columns),
+            the ``nonmonotone`` policy applies.
 
         Example:
             >>> hyeto = TexasStorm.generate_hyetograph(
@@ -405,11 +439,25 @@ class TexasStorm:
             49
         """
         if method not in TexasStorm.METHODS:
+            raise ValueError(f"Invalid method: '{method}'. Valid: {TexasStorm.METHODS}")
+        if nonmonotone not in ("raise", "running_max"):
             raise ValueError(
-                f"Invalid method: '{method}'. Valid: {TexasStorm.METHODS}"
+                f"Invalid nonmonotone: '{nonmonotone}'. "
+                "Valid: ('raise', 'running_max')"
             )
-        if total_depth_inches <= 0:
-            raise ValueError(f"Total depth must be positive: {total_depth_inches}")
+        for name, val in (
+            ("total_depth_inches", total_depth_inches),
+            ("duration_hours", duration_hours),
+        ):
+            if not (math.isfinite(val) and val > 0):
+                raise ValueError(f"{name} must be finite and positive: {val}")
+        if drainage_area_sqmi is not None and not (
+            math.isfinite(drainage_area_sqmi) and drainage_area_sqmi > 0
+        ):
+            raise ValueError(
+                "drainage_area_sqmi must be finite and positive if given: "
+                f"{drainage_area_sqmi}"
+            )
         if not (0 < duration_hours <= TexasStorm.MAX_DURATION_HOURS):
             raise ValueError(
                 f"duration_hours must be in (0, {TexasStorm.MAX_DURATION_HOURS:g}]: "
@@ -425,7 +473,7 @@ class TexasStorm:
                 f"the {duration_hours}-hour duration."
             )
 
-        TexasStorm._check_applicability(total_depth_inches, drainage_area_sqmi)
+        TexasStorm._check_applicability(total_depth_inches, drainage_area_sqmi, method)
 
         F = np.linspace(0.0, 1.0, n + 1)
         provenance: dict = {"method": method, "duration_hours": duration_hours}
@@ -439,25 +487,34 @@ class TexasStorm:
                 )
             pset = TexasStorm.TRIANGULAR_PARAMETER_SETS[param_set]
             cls = TexasStorm._select_class(
-                duration_hours, pset["classes"], duration_class,
+                duration_hours,
+                pset["classes"],
+                duration_class,
                 f"triangular/{param_set}",
             )
             _, _, a, b = pset["classes"][cls]
             frac = TexasStorm.triangular_cumulative(F, a, b)
             provenance.update(
-                param_set=param_set, duration_class=cls, a=a, b=b,
+                param_set=param_set,
+                duration_class=cls,
+                a=a,
+                b=b,
                 source=pset["source"],
             )
 
         elif method == "lgamma":
             cls = TexasStorm._select_class(
-                duration_hours, TexasStorm.LGAMMA_PARAMETERS, duration_class,
+                duration_hours,
+                TexasStorm.LGAMMA_PARAMETERS,
+                duration_class,
                 "lgamma",
             )
             _, _, b, c = TexasStorm.LGAMMA_PARAMETERS[cls]
             frac = TexasStorm.lgamma_cumulative(F, b, c)
             provenance.update(
-                duration_class=cls, b=b, c=c,
+                duration_class=cls,
+                b=b,
+                c=c,
                 source="TxDOT 0-4194-4 (L-gamma); HDM 2019 Eq. 4-28, Table 4-15",
             )
 
@@ -474,28 +531,40 @@ class TexasStorm:
             cls = TexasStorm._select_class(
                 duration_hours, classes, duration_class, "empirical"
             )
-            curve = TexasStorm.get_empirical_curve(
-                quartile, cls, percentile, trimmed
-            )
+            curve = TexasStorm.get_empirical_curve(quartile, cls, percentile, trimmed)
             x = np.concatenate(([0.0], curve["duration_pct"].to_numpy(), [100.0]))
             y = np.concatenate(([0.0], curve["depth_pct"].to_numpy(), [100.0]))
             y_mono = np.maximum.accumulate(y)
             n_adj = int(np.count_nonzero(y_mono != y))
+            max_adj = float(np.max(y_mono - y))
+            if n_adj and nonmonotone == "raise":
+                qs = str(quartile).lower()
+                page = TexasStorm._supplement_page(trimmed, qs, cls)
+                raise ValueError(
+                    "The published empirical column is not monotone: SIR "
+                    f"2004-5075 Supplement {5 if trimmed else 4}, printed "
+                    f"p. {page}, quartile={qs}, duration_class={cls}, "
+                    f"percentile={percentile} decreases with time at "
+                    f"{n_adj} ordinate(s) (max {max_adj:.2f} percent points). "
+                    "Pass nonmonotone='running_max' to apply a running "
+                    "maximum, or select another curve."
+                )
             if n_adj:
                 logger.warning(
                     f"Published empirical curve is not monotone at {n_adj} "
-                    f"point(s) (max drop {np.max(y_mono - y):.2f} percent); "
+                    f"point(s) (max adjustment {max_adj:.2f} percent points); "
                     "running maximum applied."
                 )
             frac = np.interp(F * 100.0, x, y_mono) / 100.0
             provenance.update(
-                quartile=str(quartile).lower(), duration_class=cls,
-                percentile=percentile, trimmed=trimmed,
+                quartile=str(quartile).lower(),
+                duration_class=cls,
+                percentile=percentile,
+                trimmed=trimmed,
+                nonmonotone=nonmonotone,
                 monotone_points_adjusted=n_adj,
-                source=(
-                    "USGS SIR 2004-5075 Supplement "
-                    f"{5 if trimmed else 4}"
-                ),
+                max_monotone_adjustment_pct=max_adj,
+                source=("USGS SIR 2004-5075 Supplement " f"{5 if trimmed else 4}"),
             )
 
         incremental = incremental_depths_from_cumulative_values(
