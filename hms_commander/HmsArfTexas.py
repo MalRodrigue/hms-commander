@@ -142,6 +142,24 @@ class HmsArfTexas:
     # Validation helpers
     # ------------------------------------------------------------------ #
     @staticmethod
+    def _as_float64(value, name: str, *, scalar: bool = False):
+        """Convert numeric input to float64, translating conversion errors."""
+        message = (
+            f"{name} must be numeric float64 values; bools, strings, and values "
+            "outside the float64 range are not accepted"
+        )
+        try:
+            raw = np.asarray(value, dtype=object)
+            if any(isinstance(item, (bool, np.bool_, str)) for item in raw.flat):
+                raise ValueError(message)
+            values = np.asarray(value, dtype=np.float64)
+        except (OverflowError, TypeError, ValueError):
+            raise ValueError(message) from None
+        if scalar and values.ndim != 0:
+            raise ValueError(f"{name} must be a single numeric value")
+        return values[()] if scalar else values
+
+    @staticmethod
     def _city(city: str) -> str:
         key = str(city).strip().lower()
         if key not in _TABLE7:
@@ -154,6 +172,10 @@ class HmsArfTexas:
     @staticmethod
     def _check_scope(recurrence_interval_yr, duration_hr) -> None:
         """Hard limits (WRIR 99-4267 p. 25); never relaxed by ``extrapolate``."""
+        recurrence_interval_yr = HmsArfTexas._as_float64(
+            recurrence_interval_yr, "recurrence_interval_yr", scalar=True
+        )
+        duration_hr = HmsArfTexas._as_float64(duration_hr, "duration_hr", scalar=True)
         if not np.isfinite(recurrence_interval_yr) or recurrence_interval_yr <= 0:
             raise ValueError("recurrence_interval_yr must be a positive number")
         if recurrence_interval_yr < MIN_RECURRENCE_INTERVAL_YR:
@@ -188,10 +210,7 @@ class HmsArfTexas:
     @staticmethod
     def _validate_depths(depths) -> np.ndarray:
         """Return numeric depths after requiring finite, nonnegative values."""
-        try:
-            values = np.asarray(depths, dtype=float)
-        except (TypeError, ValueError):
-            raise ValueError("depths must be finite numbers >= 0") from None
+        values = HmsArfTexas._as_float64(depths, "depths")
         if not np.all(np.isfinite(values)) or np.any(values < 0):
             raise ValueError("depths must be finite numbers >= 0")
         return values
@@ -233,6 +252,7 @@ class HmsArfTexas:
     @staticmethod
     def radius_from_area(area_mi2: float) -> float:
         """Radius (mi) of the circle with the given area (mi2)."""
+        area_mi2 = HmsArfTexas._as_float64(area_mi2, "area_mi2", scalar=True)
         if not np.isfinite(area_mi2) or area_mi2 < 0:
             raise ValueError(f"area_mi2 must be a finite number >= 0, got {area_mi2}")
         return math.sqrt(area_mi2 / math.pi)
@@ -259,11 +279,12 @@ class HmsArfTexas:
                 ``extrapolate=False``, or a computed S2 outside (0, 1].
         """
         c = HmsArfTexas._city(city)
-        _, _, a, b, *_ = HmsArfTexas._segment(c, float(r_mi), extrapolate, False)
-        s2 = a - b * float(r_mi)
+        r_mi = HmsArfTexas._as_float64(r_mi, "r_mi", scalar=True)
+        _, _, a, b, *_ = HmsArfTexas._segment(c, r_mi, extrapolate, False)
+        s2 = a - b * r_mi
         if not 0 < s2 <= 1:
             raise ValueError(
-                f"Computed S2 {s2:.4f} at distance {float(r_mi):.3f} mi is outside "
+                f"Computed S2 {s2:.4f} at distance {r_mi:.3f} mi is outside "
                 "(0, 1]; the extrapolated relation is not physical here."
             )
         return s2
@@ -323,7 +344,7 @@ class HmsArfTexas:
         r = (
             HmsArfTexas.radius_from_area(area_mi2)
             if radius_mi is None
-            else float(radius_mi)
+            else HmsArfTexas._as_float64(radius_mi, "radius_mi", scalar=True)
         )
         HmsArfTexas._check_scope(recurrence_interval_yr, duration_hr)
         _, _, _, _, a, b, k = HmsArfTexas._segment(
@@ -374,8 +395,8 @@ class HmsArfTexas:
                 (possible only with ``extrapolate=True``).
         """
         c = HmsArfTexas._city(city)
-        d = np.asarray(distances_mi, dtype=float)
-        a = np.asarray(areas_mi2, dtype=float)
+        d = HmsArfTexas._as_float64(distances_mi, "distances_mi")
+        a = HmsArfTexas._as_float64(areas_mi2, "areas_mi2")
         if d.ndim != 1 or d.shape != a.shape or d.size == 0:
             raise ValueError(
                 "distances_mi and areas_mi2 must be equal-length, non-empty "

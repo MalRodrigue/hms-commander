@@ -368,6 +368,59 @@ def test_size_argument_validation():
             HmsArfTexas.circular_arf("austin", radius_mi=bad, **T)
 
 
+@pytest.mark.parametrize(
+    "bad",
+    [-(10**400), 10**400, -(10**20)],
+    ids=["negative_overflow", "positive_overflow", "negative_large"],
+)
+def test_huge_integer_radius_and_area_raise_value_error(bad):
+    for kwargs in ({"area_mi2": bad}, {"radius_mi": bad}):
+        with pytest.raises(ValueError, match="float64|finite"):
+            HmsArfTexas.circular_arf("austin", **kwargs, **T)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [-(10**400), 10**400],
+    ids=["negative_overflow", "positive_overflow"],
+)
+def test_huge_integer_depths_raise_value_error(bad):
+    for method in (HmsArfTexas.scale_depth, HmsArfTexas.scale_hyetograph):
+        with pytest.raises(ValueError, match="float64|finite"):
+            method(bad, "austin", radius_mi=1, **T)
+
+
+@pytest.mark.parametrize("bad", [True, "1"])
+@pytest.mark.parametrize(
+    "numeric_input",
+    [
+        lambda bad: HmsArfTexas.radius_from_area(bad),
+        lambda bad: HmsArfTexas.depth_distance("austin", bad),
+        lambda bad: HmsArfTexas.circular_arf("austin", area_mi2=bad, **T),
+        lambda bad: HmsArfTexas.circular_arf("austin", radius_mi=bad, **T),
+        lambda bad: HmsArfTexas.noncircular_arf("austin", [bad], [1], **T),
+        lambda bad: HmsArfTexas.noncircular_arf("austin", [1], [bad], **T),
+        lambda bad: HmsArfTexas.scale_depth(bad, "austin", radius_mi=1, **T),
+        lambda bad: HmsArfTexas.circular_arf("austin", 1, recurrence_interval_yr=bad),
+        lambda bad: HmsArfTexas.circular_arf("austin", 1, duration_hr=bad, **T),
+    ],
+    ids=[
+        "area_radius",
+        "distance",
+        "circular_area",
+        "circular_radius",
+        "cell_distance",
+        "cell_area",
+        "depth",
+        "recurrence",
+        "duration",
+    ],
+)
+def test_bool_and_string_numeric_inputs_raise_value_error(numeric_input, bad):
+    with pytest.raises(ValueError, match="float64"):
+        numeric_input(bad)
+
+
 def test_noncircular_validation():
     with pytest.raises(ValueError):
         HmsArfTexas.noncircular_arf("austin", [1, 2], [1.0], **T)
