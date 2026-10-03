@@ -60,7 +60,8 @@ _HDR_Q = re.compile(
     r"(First|Second|Third|Fourth)-quartile storms; storm duration (\d+) to (\d+) hours"
 )
 _HDR_ALL = re.compile(
-    r"First- through fourth-quartile storms combined; storm duration (\d+) to (\d+) hours"
+    r"First- through fourth-quartile storms combined; storm duration "
+    r"(\d+) to (\d+) hours"
 )
 _NUM = re.compile(r"^\d*\.?\d+$")
 _QMAP = {"First": "1", "Second": "2", "Third": "3", "Fourth": "4"}
@@ -99,7 +100,7 @@ def read_text_layer(doc):
             idx = next(i for i, ln in enumerate(lines) if _block_key(ln))
             key = _block_key(lines[idx])
             toks = []
-            for ln in lines[idx + 1:]:
+            for ln in lines[idx + 1 :]:  # noqa: E203
                 if ln.startswith("Supplement"):
                     break
                 toks.append(ln)
@@ -159,7 +160,7 @@ def _grid_from_ocr(items, ncols, y_min, header_x=None):
         # Column centres: split sorted x centres at the (ncols-1) largest gaps.
         xs = np.sort([c[0] for r in rows for c in r])
         gaps = np.diff(xs)
-        cut = np.sort(np.argsort(gaps)[-(ncols - 1):])
+        cut = np.sort(np.argsort(gaps)[-(ncols - 1) :])  # noqa: E203
         edges = [(xs[i] + xs[i + 1]) / 2 for i in cut]
     grid = {}
     for r in rows:
@@ -242,14 +243,14 @@ def read_ocr(doc, cache_path: Path | None):
     for supp, rng in SUPP_PAGES.items():
         for pg in rng:
             items = cache[str(pg)]
-            title = next(
-                (it for it in items if _block_key(it[2])), None
-            )
+            title = next((it for it in items if _block_key(it[2])), None)
             key = _block_key(title[2])
             hdr = [
-                it for it in items
+                it
+                for it in items
                 if re.fullmatch(r"\d0th|25th|75th", it[2].replace("O", "0"))
-                and abs(it[1] - title[1]) < 120 and it[1] < title[1]
+                and abs(it[1] - title[1]) < 120
+                and it[1] < title[1]
             ]
             interval_hdr = [it for it in items if it[2] == "Interval"]
             assert len(hdr) == 11 and interval_hdr, (pg, len(hdr))
@@ -300,7 +301,9 @@ def structural_checks(a_blocks):
             col = A[:, j]
             v = col[~np.isnan(col)]
             if len(v) and (np.any(np.diff(v) < 0) or v.max() > 100 or v.min() < 0):
-                issues.append((key, PERCENTILES[j], "cumulative column not monotone/in [0,100]"))
+                issues.append(
+                    (key, PERCENTILES[j], "cumulative column not monotone/in [0,100]")
+                )
         # percentile ordering across columns at a given interval
         for i in range(A.shape[0]):
             r = A[i, :]
@@ -313,20 +316,50 @@ def structural_checks(a_blocks):
 def write_csv(a_blocks, out: Path, pdf_name: str):
     header = [
         "# Empirical dimensionless cumulative-rainfall hyetographs, Texas.",
-        "# Source: Williams-Sether, T., Asquith, W.H., Thompson, D.B., Cleveland, T.G., and Fang, X.,",
-        "#   2004, USGS Scientific Investigations Report 2004-5075 (TxDOT Project 0-4194-3).",
+        (
+            "# Source: Williams-Sether, T., Asquith, W.H., Thompson, D.B., Cleveland, "
+            "T.G., and Fang, X.,"
+        ),
+        (
+            "#   2004, USGS Scientific Investigations Report 2004-5075 "
+            "(TxDOT Project 0-4194-3)."
+        ),
         "# Supplement 4 = untrimmed and smoothed percentiles (printed pp. 76-100);",
         "# Supplement 5 = trimmed and smoothed percentiles (printed pp. 101-125).",
-        "# Values are cumulative rainfall as percent of storm total at the center of each 2.5-percent",
-        "#   storm-duration interval (2.5 ... 97.5). Empty cell = '--' (no data) in the source.",
-        "# quartile: 1-4 = first-fourth quartile storms (quartile of storm duration holding the",
+        (
+            "# Values are cumulative rainfall as percent of storm total at the center "
+            "of each 2.5-percent"
+        ),
+        (
+            "#   storm-duration interval (2.5 ... 97.5). Empty cell = '--' "
+            "(no data) in the source."
+        ),
+        (
+            "# quartile: 1-4 = first-fourth quartile storms (quartile of "
+            "storm duration holding the"
+        ),
         "#   most rain); all = first- through fourth-quartile storms combined.",
         "# duration_class: storm duration in hours (0-6, 6-12, 12-24, 24-72, 0-72).",
-        "# Transcribed twice (PDF text layer and OCR of page images) and compared cell by cell by",
-        "#   scripts/texas_hyetograph_transcription.py (no disagreements in 22,113 cells).",
-        "# No corrections were applied. Report Table 4 (0-72 hr medians) equals the Supplement 5",
-        "#   0-72 hr 50th-percentile columns; Tables 5-6 equal its 10th/50th/90th columns.",
-        "# Some smoothed columns are not monotone in the source (see tests/test_texas_storm.py).",
+        (
+            "# Transcribed twice (PDF text layer and OCR of page images) and "
+            "compared cell by cell by"
+        ),
+        (
+            "#   scripts/texas_hyetograph_transcription.py (no disagreements in 22,113 "
+            "cells)."
+        ),
+        (
+            "# No corrections were applied. Report Table 4 (0-72 hr medians) "
+            "equals the Supplement 5"
+        ),
+        (
+            "#   0-72 hr 50th-percentile columns; Tables 5-6 equal its "
+            "10th/50th/90th columns."
+        ),
+        (
+            "# Some smoothed columns are not monotone in the source "
+            "(see tests/test_texas_storm.py)."
+        ),
     ]
     cols = ["supplement", "quartile", "duration_class", "interval_pct"] + [
         f"p{p}" for p in PERCENTILES
@@ -353,8 +386,13 @@ def main(argv=None):
 
     doc = pymupdf.open(args.pdf)
     a_blocks, a_tables = read_text_layer(doc)
-    print(f"Reading A (text layer): {len(a_blocks)} supplement blocks, {len(a_tables)} tables")
-    b_blocks, b_tables, ocr_bad = read_ocr(doc, Path(args.cache) if args.cache else None)
+    print(
+        f"Reading A (text layer): {len(a_blocks)} supplement blocks, "
+        f"{len(a_tables)} tables"
+    )
+    b_blocks, b_tables, ocr_bad = read_ocr(
+        doc, Path(args.cache) if args.cache else None
+    )
     print(f"Reading B (OCR): {len(b_blocks)} supplement blocks, {len(b_tables)} tables")
 
     n_cells, n_diff, diffs = compare(a_blocks, a_tables, b_blocks, b_tables, ocr_bad)
@@ -372,8 +410,11 @@ def main(argv=None):
         if n_diff or ocr_bad:
             print("Refusing to write CSV: readings disagree (resolve first).")
             return 1
-        out = Path(__file__).resolve().parent.parent / "hms_commander" / "data" / (
-            "texas_empirical_hyetographs.csv"
+        out = (
+            Path(__file__).resolve().parent.parent
+            / "hms_commander"
+            / "data"
+            / ("texas_empirical_hyetographs.csv")
         )
         write_csv(a_blocks, out, Path(args.pdf).name)
         print("wrote", out)

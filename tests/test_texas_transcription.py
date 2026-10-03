@@ -15,20 +15,14 @@ and HDM Table 4-16 is compared with the USGS values.
 
 import os
 import re
-import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
+from hms_commander import TexasStorm
+from scripts import texas_hyetograph_transcription as tt
 
 pymupdf = pytest.importorskip("pymupdf")
-
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "scripts"))
-
-import texas_hyetograph_transcription as tt  # noqa: E402
-from hms_commander import TexasStorm  # noqa: E402
 
 SIR = os.environ.get("TEXAS_SIR_PDF")
 HDM = os.environ.get("TEXAS_HDM_PDF")
@@ -51,8 +45,11 @@ def test_csv_matches_text_layer(sir_text_layer):
     blocks, _ = sir_text_layer
     df = TexasStorm._load_empirical()
     for (supp, q, dur), (_, arr) in blocks.items():
-        g = df[(df["supplement"] == supp) & (df["quartile"] == q)
-               & (df["duration_class"] == dur)]
+        g = df[
+            (df["supplement"] == supp)
+            & (df["quartile"] == q)
+            & (df["duration_class"] == dur)
+        ]
         assert len(g) == 39
         got = g[[f"p{p}" for p in tt.PERCENTILES]].to_numpy(dtype=float)
         assert np.array_equal(np.isnan(got), np.isnan(arr))

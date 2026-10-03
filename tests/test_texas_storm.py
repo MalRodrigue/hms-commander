@@ -14,16 +14,11 @@ Usage:
     pytest tests/test_texas_storm.py -v
 """
 
-import sys
 import warnings
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
-
-current_file = Path(__file__).resolve()
-sys.path.insert(0, str(current_file.parent.parent))
 
 from hms_commander import TexasStorm, ScsTypeStorm
 
