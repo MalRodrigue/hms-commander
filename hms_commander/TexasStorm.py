@@ -18,9 +18,9 @@ Methods:
 Explicit choices (no silent defaults):
     - Two different triangular parameter sets are published (see
       ``TRIANGULAR_PARAMETER_SETS``); ``param_set`` must be given.
-    - Duration class boundaries (for example exactly 12 hr) are not resolved
-      by the sources in a way this module can apply, so a duration that falls
-      on a boundary requires an explicit ``duration_class``.
+    - A duration on an overlapping duration-class boundary requires an explicit
+      ``duration_class``. The non-overlapping ``nws_hourly`` class endpoints
+      of exactly 12 and 24 hr are selected automatically.
     - The empirical ``quartile`` must be given.
     - A few published empirical columns decrease slightly with time. By
       default (``nonmonotone="raise"``) generation raises ``ValueError``;
@@ -72,6 +72,7 @@ References:
 
 import math
 import warnings
+from numbers import Real
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
 
@@ -119,6 +120,7 @@ class TexasStorm:
 
     _DATA_FILE = "data/texas_empirical_hyetographs.csv"
     _empirical_cache: Optional[pd.DataFrame] = None
+    _APPLICABILITY_WARNING_STACKLEVEL = 4
 
     # Triangular model: p1 = F**2 / a for 0 <= F <= a;
     # p2 = -F**2/b + (2a/b + 2) F - (a**2/b + a) for a < F <= 1.
@@ -213,6 +215,38 @@ class TexasStorm:
         return TexasStorm._empirical_cache
 
     @staticmethod
+    def _normalize_integral_selector(value: object, name: str) -> object:
+        """Return an integral numeric selector as a built-in ``int``."""
+        if isinstance(value, (bool, np.bool_)):
+            raise ValueError(
+                f"{name} must be an integral selector, not a boolean: {value}"
+            )
+        if isinstance(value, Real):
+            numeric_value = float(value)
+            if not math.isfinite(numeric_value) or not numeric_value.is_integer():
+                raise ValueError(f"{name} must be an integral selector: {value}")
+            return int(numeric_value)
+        return value
+
+    @staticmethod
+    def _validate_positive_physical_quantity(name: str, value: object) -> None:
+        """Require a finite, positive real quantity and reject booleans."""
+        if (
+            isinstance(value, (bool, np.bool_))
+            or not isinstance(value, Real)
+            or not math.isfinite(float(value))
+            or value <= 0
+        ):
+            raise ValueError(f"{name} must be finite and positive: {value}")
+
+    @staticmethod
+    def _normalize_trimmed(trimmed: object) -> bool:
+        """Require and normalize the empirical-supplement selector."""
+        if not isinstance(trimmed, (bool, np.bool_)):
+            raise ValueError(f"trimmed must be a bool: {trimmed}")
+        return bool(trimmed)
+
+    @staticmethod
     def get_empirical_curve(
         quartile: Union[int, str],
         duration_class: str,
@@ -226,10 +260,11 @@ class TexasStorm:
             quartile: 1, 2, 3, 4, or 'all' (first- through fourth-quartile
                 storms combined).
             duration_class: One of ``EMPIRICAL_DURATION_CLASSES``.
-            percentile: One of ``EMPIRICAL_PERCENTILES``.
+            percentile: One of ``EMPIRICAL_PERCENTILES``. Integral floats and
+                NumPy numeric scalars are accepted and normalized to ``int``.
             trimmed: True for Supplement 5 (trimmed and smoothed, the source
                 of SIR Table 4); False for Supplement 4 (untrimmed and
-                smoothed).
+                smoothed). Must be a real boolean (``bool`` or ``np.bool_``).
 
         Returns:
             DataFrame with columns ``duration_pct`` (center of each 2.5-percent
@@ -240,7 +275,10 @@ class TexasStorm:
             ValueError: For unknown selectors or when the source reports no
                 data ('--') for the requested curve.
         """
+        quartile = TexasStorm._normalize_integral_selector(quartile, "quartile")
         quartile = str(quartile).lower()
+        percentile = TexasStorm._normalize_integral_selector(percentile, "percentile")
+        trimmed = TexasStorm._normalize_trimmed(trimmed)
         if quartile not in TexasStorm.EMPIRICAL_QUARTILES:
             raise ValueError(
                 f"Invalid quartile: '{quartile}'. "
@@ -340,7 +378,11 @@ class TexasStorm:
                 "Texas hyetograph data are for storms of at least 1 inch."
             )
             logger.warning(msg)
-            warnings.warn(msg, UserWarning, stacklevel=3)
+            warnings.warn(
+                msg,
+                UserWarning,
+                stacklevel=TexasStorm._APPLICABILITY_WARNING_STACKLEVEL,
+            )
         if method != "empirical":
             return
         if drainage_area_sqmi is None:
@@ -357,7 +399,11 @@ class TexasStorm:
                 "p. 4-77)."
             )
             logger.warning(msg)
-            warnings.warn(msg, UserWarning, stacklevel=3)
+            warnings.warn(
+                msg,
+                UserWarning,
+                stacklevel=TexasStorm._APPLICABILITY_WARNING_STACKLEVEL,
+            )
 
     # ------------------------------------------------------------------
     # Public generator
@@ -387,17 +433,20 @@ class TexasStorm:
             time_interval_min: Output time step in minutes (default 60). The
                 duration must be a whole multiple of the interval.
             quartile: Required for 'empirical': 1, 2, 3, 4, or 'all'.
-            percentile: Empirical percentile (default 50).
+            percentile: Empirical percentile (default 50). Integral floats and
+                NumPy numeric scalars are accepted and normalized to ``int``.
             trimmed: Empirical only. True (default) uses SIR 2004-5075
                 Supplement 5 (trimmed, smoothed; SIR Table 4 is its median);
-                False uses Supplement 4 (untrimmed, smoothed).
+                False uses Supplement 4 (untrimmed, smoothed). Must be a real
+                boolean (``bool`` or ``np.bool_``); ``None`` is not a selector.
             param_set: Required for 'triangular': 'usgs_runoff' or
                 'nws_hourly'. See ``TRIANGULAR_PARAMETER_SETS`` for sources.
             duration_class: Optional explicit class. Required when
-                ``duration_hours`` falls on a class boundary (for example
-                12 hr). It cannot make an unsupported duration valid: the
-                'nws_hourly' set rejects 12-13 hr, 24-25 hr and durations
-                under 5 hr (HDM Table 4-13, p. 4-74).
+                ``duration_hours`` falls on an overlapping class boundary.
+                The non-overlapping 'nws_hourly' endpoints of exactly 12 and
+                24 hr select automatically. It cannot make an unsupported
+                duration valid: the 'nws_hourly' set rejects 12-13 hr,
+                24-25 hr and durations under 5 hr (HDM Table 4-13, p. 4-74).
             drainage_area_sqmi: Optional watershed area; must be finite and
                 positive if given. For 'empirical' only, a ``UserWarning`` is
                 issued above ``MAX_DRAINAGE_AREA_SQMI`` (160 mi2; SIR
@@ -445,18 +494,15 @@ class TexasStorm:
                 f"Invalid nonmonotone: '{nonmonotone}'. "
                 "Valid: ('raise', 'running_max')"
             )
+        trimmed = TexasStorm._normalize_trimmed(trimmed)
         for name, val in (
             ("total_depth_inches", total_depth_inches),
             ("duration_hours", duration_hours),
         ):
-            if not (math.isfinite(val) and val > 0):
-                raise ValueError(f"{name} must be finite and positive: {val}")
-        if drainage_area_sqmi is not None and not (
-            math.isfinite(drainage_area_sqmi) and drainage_area_sqmi > 0
-        ):
-            raise ValueError(
-                "drainage_area_sqmi must be finite and positive if given: "
-                f"{drainage_area_sqmi}"
+            TexasStorm._validate_positive_physical_quantity(name, val)
+        if drainage_area_sqmi is not None:
+            TexasStorm._validate_positive_physical_quantity(
+                "drainage_area_sqmi", drainage_area_sqmi
             )
         if not (0 < duration_hours <= TexasStorm.MAX_DURATION_HOURS):
             raise ValueError(
@@ -524,6 +570,10 @@ class TexasStorm:
                     "quartile is required for the empirical method: "
                     f"{TexasStorm.EMPIRICAL_QUARTILES}"
                 )
+            quartile = TexasStorm._normalize_integral_selector(quartile, "quartile")
+            percentile = TexasStorm._normalize_integral_selector(
+                percentile, "percentile"
+            )
             classes = {
                 name: tuple(float(x) for x in name.split("-")) + (None, None)
                 for name in TexasStorm.EMPIRICAL_DURATION_CLASSES

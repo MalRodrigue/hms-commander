@@ -15,6 +15,7 @@ Usage:
 """
 
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -163,6 +164,49 @@ class TestEmpiricalTables:
         for pct in (10, 90):
             with pytest.raises(ValueError, match="no data"):
                 TexasStorm.get_empirical_curve(4, "0-6", pct)
+
+    @pytest.mark.parametrize("value", [50.0, np.float64(50), np.int64(50)])
+    def test_integral_numeric_percentile_selector_is_normalized(self, value):
+        curve = TexasStorm.get_empirical_curve(1, "0-6", value)
+        expected = TexasStorm.get_empirical_curve(1, "0-6", 50)
+        pd.testing.assert_frame_equal(curve, expected)
+
+    @pytest.mark.parametrize("value", [1.0, np.float64(1), np.int64(1)])
+    def test_integral_numeric_quartile_selector_is_normalized(self, value):
+        curve = TexasStorm.get_empirical_curve(value, "0-6", 50)
+        expected = TexasStorm.get_empirical_curve(1, "0-6", 50)
+        pd.testing.assert_frame_equal(curve, expected)
+
+    def test_generate_normalizes_integral_numeric_selectors(self):
+        hyeto = TexasStorm.generate_hyetograph(
+            5.0,
+            10,
+            "empirical",
+            quartile=np.float64(1),
+            percentile=np.float64(50),
+            duration_class="6-12",
+        )
+        assert hyeto.attrs["provenance"]["quartile"] == "1"
+        assert hyeto.attrs["provenance"]["percentile"] == 50
+
+    @pytest.mark.parametrize(
+        "quartile, percentile", [(1.5, 50), (1, 50.5), (5, 50), (1, 55)]
+    )
+    def test_nonintegral_or_unknown_empirical_selector_raises(
+        self, quartile, percentile
+    ):
+        with pytest.raises(ValueError):
+            TexasStorm.get_empirical_curve(quartile, "0-6", percentile)
+
+    @pytest.mark.parametrize("trimmed", [True, False, np.bool_(True), np.bool_(False)])
+    def test_boolean_trimmed_selector_is_accepted(self, trimmed):
+        curve = TexasStorm.get_empirical_curve(1, "0-6", trimmed=trimmed)
+        assert not curve.empty
+
+    @pytest.mark.parametrize("trimmed", [None, np.nan, "False", 1, np.int64(1)])
+    def test_nonboolean_trimmed_selector_raises(self, trimmed):
+        with pytest.raises(ValueError, match="trimmed"):
+            TexasStorm.get_empirical_curve(1, "0-6", trimmed=trimmed)
 
     def test_published_columns_nonmonotone_only_where_known(self):
         df = TexasStorm._load_empirical()
@@ -484,6 +528,51 @@ class TestSelectionAndApplicability:
     def test_drainage_area_must_be_finite_positive(self, bad):
         with pytest.raises(ValueError, match="drainage_area_sqmi"):
             TexasStorm.generate_hyetograph(5.0, 10, "lgamma", drainage_area_sqmi=bad)
+
+    @pytest.mark.parametrize(
+        "name", ["total_depth_inches", "duration_hours", "drainage_area_sqmi"]
+    )
+    @pytest.mark.parametrize("bad", [True, np.bool_(True)])
+    def test_physical_quantities_reject_booleans(self, name, bad):
+        kwargs = {
+            "total_depth_inches": 5.0,
+            "duration_hours": 10,
+            "method": "lgamma",
+            name: bad,
+        }
+        with pytest.raises(ValueError, match=name):
+            TexasStorm.generate_hyetograph(**kwargs)
+
+    @pytest.mark.parametrize("trimmed", [None, np.nan, "False", 1, np.int64(1)])
+    def test_generate_rejects_nonboolean_trimmed_selector(self, trimmed):
+        with pytest.raises(ValueError, match="trimmed"):
+            TexasStorm.generate_hyetograph(5.0, 10, "lgamma", trimmed=trimmed)
+
+    def test_applicability_warnings_point_to_caller(self):
+        cases = (
+            (
+                dict(total_depth_inches=0.5, duration_hours=10, method="lgamma"),
+                "1 inch",
+            ),
+            (
+                dict(
+                    total_depth_inches=5.0,
+                    duration_hours=10,
+                    method="empirical",
+                    quartile=1,
+                    duration_class="6-12",
+                    drainage_area_sqmi=500.0,
+                ),
+                "160",
+            ),
+        )
+        for kwargs, warning_text in cases:
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                TexasStorm.generate_hyetograph(**kwargs)
+            assert len(caught) == 1
+            assert warning_text in str(caught[0].message)
+            assert Path(caught[0].filename).resolve() == Path(__file__).resolve()
 
     @pytest.mark.parametrize("cls", [None, "5-12", "13-24"])
     def test_nws_gap_unsupported_even_with_explicit_class(self, cls):

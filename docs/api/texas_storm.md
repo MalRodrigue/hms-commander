@@ -67,9 +67,11 @@ of the report (PDF text layer and OCR of the page images) and writes the file.
   0.28936, 0.38959 for 5-12, 13-24, 25-72 hr). No default is applied.
 - **Duration class.** Classes are 0-6, 6-12, 12-24, 24-72 hr (empirical);
   0-12, 12-24, 24-72 hr (L-gamma); and the triangular classes above. A
-  duration on a class boundary (for example exactly 12 hr) needs an explicit
-  `duration_class`. HDM says to use the class giving the more severe runoff
-  for exactly 12 or 24 hr; that choice is left to the caller.
+  duration on an overlapping class boundary needs an explicit
+  `duration_class`. The `nws_hourly` classes do not overlap, so durations of
+  exactly 12 or 24 hr select automatically (the 5-12 or 13-24 hr class,
+  respectively). HDM says to use the class giving the more severe runoff for
+  exactly 12 or 24 hr; that choice is left to the caller where classes overlap.
 - **Quartile** (empirical): 1, 2, 3, 4, or `"all"`.
 - **Non-monotone published columns** (empirical): see below.
 
@@ -119,7 +121,7 @@ of the report (PDF text layer and OCR of the page images) and writes the file.
     - `"running_max"`: the running maximum is applied. The number of adjusted
       ordinates (`monotone_points_adjusted`) and the largest adjustment in
       percent points (`max_monotone_adjustment_pct`; 1.09 for the case above,
-      11.76 raised to 12.85 at 35 percent of duration) are recorded in
+      11.76 raised to 12.85 at 37.5 percent of duration) are recorded in
       `hyeto.attrs["provenance"]`. The sources do not prescribe this repair.
 
     The bundled CSV and `get_empirical_curve` return the published values
