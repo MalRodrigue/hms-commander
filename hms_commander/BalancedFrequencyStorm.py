@@ -283,6 +283,8 @@ class BalancedFrequencyStorm:
                 raise ValueError(
                     "Sequence depths and durations_min must have equal lengths"
                 )
+            if len(set(durs)) != len(durs):
+                raise ValueError("durations_min must not contain duplicates")
             depths = dict(zip(durs, values))
         table = (
             BalancedFrequencyStorm.augment_depths(depths)

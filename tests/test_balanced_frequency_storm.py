@@ -222,6 +222,12 @@ class TestBehavior:
         b = BalancedFrequencyStorm.generate_hyetograph(KERRVILLE_100YR, 1440, 15, 50)
         assert np.allclose(a["incremental_depth"], b["incremental_depth"])
 
+    def test_sequence_durations_must_be_unique(self):
+        with pytest.raises(ValueError, match="duplicates"):
+            BalancedFrequencyStorm.generate_hyetograph(
+                [1.0, 2.0, 3.0], 30, 15, 50, durations_min=[15, 15, 30]
+            )
+
     def test_sequence_depths_and_durations_must_have_equal_lengths(self):
         with pytest.raises(ValueError, match="equal lengths"):
             BalancedFrequencyStorm.generate_hyetograph(
