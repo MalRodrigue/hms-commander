@@ -25,7 +25,7 @@ Scope (everything outside it is rejected unless ``extrapolate=True``):
 HDM caution (Sec. 13, p. 4-64): "the applicability of this method diminishes
 the farther away from the Austin, Dallas, or Houston areas the study area is
 and as the duration of the design storm increasingly differs from that of
-1 day." The report (p. 24) says the same. Use for a watershed far from these
+1 day." The report (p. 25) says the same. Use for a watershed far from these
 cities, for other durations, or for rainfall events shorter than a day is an
 engineering judgement that this module does not validate.
 
@@ -72,8 +72,8 @@ _TABLE7: Dict[str, Tuple[_Segment, ...]] = {
         (12, 16, 0.8130, 0.0155, 0.8130, 0.0103, 2.8533),
         (16, 18, 0.7650, 0.0125, 0.7650, 0.0083, 6.9493),
         (18, 24, 0.7200, 0.0100, 0.7200, 0.0067, 11.8093),
-        # ARF intercept corrected 0.6800 -> 0.6880 (see _DALLAS_24_27_PRINTED)
-        (24, 27, 0.6880, 0.0087, 0.6880, 0.0058, 17.9533),
+        # ARF intercept 0.6800 as printed in Table 7 (see _DALLAS_24_27_CORRECTED)
+        (24, 27, 0.6880, 0.0087, 0.6800, 0.0058, 17.9533),
         (27, 31, 0.6228, 0.0063, 0.6228, 0.0042, 33.8091),
         (31, 50, 0.5563, 0.0041, 0.5563, 0.0027, 55.1070),
     ),
@@ -89,11 +89,14 @@ _TABLE7: Dict[str, Tuple[_Segment, ...]] = {
     ),
 }
 
-# Table 7 as printed gives the Dallas 24 <= r <= 27 ARF intercept as 0.6800
-# while the S2 intercept in the same row is 0.6880. 0.6800 leaves the ARF
-# discontinuous at r = 24 and disagrees with the integral of S2; 0.6880
-# restores both. The HDM Table 4-12 repeats the printed 0.6800.
+# Table 7 prints the Dallas 24 <= r <= 27 ARF intercept as 0.6800 (the HDM
+# Table 4-12 repeats it); this is the default. The S2 intercept in the same row
+# is 0.6880, and in the other 29 rows the ARF intercept equals the S2 intercept
+# (ARF = (2/R^2) * integral of r*S2 dr gives intercept a and slope 2b/3).
+# 0.6880 also makes the ARF continuous at r = 24 mi. It is used only when
+# dallas_intercept_correction=True.
 _DALLAS_24_27_PRINTED = 0.6800
+_DALLAS_24_27_CORRECTED = 0.6880
 
 STUDY_AREAS = tuple(_TABLE7)
 MAX_RADIUS_MI = 50.0
@@ -171,7 +174,7 @@ class HmsArfTexas:
         logger.warning("Extrapolating Asquith (1999) Texas ARF beyond its published scope: %s", msg)
 
     @staticmethod
-    def _segment(city: str, r: float, extrapolate: bool, as_printed: bool) -> _Segment:
+    def _segment(city: str, r: float, extrapolate: bool, dallas_intercept_correction: bool = False) -> _Segment:
         if not np.isfinite(r) or r < 0:
             raise ValueError(f"distance/radius must be a finite number >= 0 mi, got {r}")
         if r > MAX_RADIUS_MI * (1 + 1e-12):  # tolerate area->radius round-off
@@ -180,14 +183,15 @@ class HmsArfTexas:
                 extrapolate,
             )
         segs = _TABLE7[city]
-        # Segments share their endpoints; the lower segment owns r == lo.
+        # Segments share their endpoints; at a join the higher-radius segment is used
+        # (r < hi selects the lower segment, so r == hi falls to the next one).
         seg = segs[-1]
         for s in segs:
             if r < s[1]:
                 seg = s
                 break
-        if as_printed and city == "dallas" and seg[0] == 24:
-            seg = seg[:4] + (_DALLAS_24_27_PRINTED,) + seg[5:]
+        if dallas_intercept_correction and city == "dallas" and seg[0] == 24:
+            seg = seg[:4] + (_DALLAS_24_27_CORRECTED,) + seg[5:]
         return seg
 
     # ------------------------------------------------------------------ #
@@ -225,7 +229,8 @@ class HmsArfTexas:
     @log_call
     def circular_arf(city: str, area_mi2: float = None, *, radius_mi: float = None,
                      recurrence_interval_yr: float, duration_hr: float = DURATION_HR,
-                     extrapolate: bool = False, as_printed: bool = False) -> float:
+                     extrapolate: bool = False,
+                     dallas_intercept_correction: bool = False) -> float:
         """
         ARF for a circular watershed, Table 7 column "ARF2(r)".
 
@@ -246,25 +251,35 @@ class HmsArfTexas:
             duration_hr: Design-storm duration, hours (must be 24).
             extrapolate: Permit out-of-range input; logs a warning. Beyond
                 50 mi the last published segment is continued.
-            as_printed: Use the printed Dallas 24-27 mi ARF intercept
-                (0.6800) instead of the continuity-consistent 0.6880.
+            dallas_intercept_correction: The default reproduces Table 7
+                exactly, including the printed Dallas 24-27 mi ARF intercept
+                0.6800. If True, use 0.6880, the value implied by the S2
+                intercept in the same row (ARF intercept = S2 intercept in
+                the other 29 rows) and by continuity at r = 24 mi.
 
         Returns:
-            Areal-reduction factor, dimensionless (0 to 1).
+            Areal-reduction factor, dimensionless, 0 < ARF <= 1.
 
         Raises:
-            ValueError: unknown city, bad/ambiguous size input, or input
-                outside the published scope with ``extrapolate=False``.
+            ValueError: unknown city, bad/ambiguous size input, input
+                outside the published scope with ``extrapolate=False``, or
+                (with ``extrapolate=True``) a computed ARF outside (0, 1].
         """
         c = HmsArfTexas._city(city)
         if (area_mi2 is None) == (radius_mi is None):
             raise ValueError("Provide exactly one of area_mi2 or radius_mi")
         r = HmsArfTexas.radius_from_area(area_mi2) if radius_mi is None else float(radius_mi)
         HmsArfTexas._check_scope(recurrence_interval_yr, duration_hr, extrapolate)
-        _, _, _, _, a, b, k = HmsArfTexas._segment(c, r, extrapolate, as_printed)
+        _, _, _, _, a, b, k = HmsArfTexas._segment(
+            c, r, extrapolate, dallas_intercept_correction)
         if r == 0:
             return 1.0
-        return a - b * r + k / r ** 2
+        arf = a - b * r + k / r ** 2
+        if not 0 < arf <= 1:
+            raise ValueError(
+                f"Computed ARF {arf:.4f} at radius {r:.3f} mi is outside (0, 1]; "
+                "the extrapolated relation is not physical here.")
+        return arf
 
     @staticmethod
     @log_call
@@ -277,7 +292,7 @@ class HmsArfTexas:
 
         The watershed is divided into cells; each cell's distance to the
         centroid is substituted into S2(r) and the area-weighted mean of
-        S2 is the ARF (Asquith 1999, p. 25-26; HDM Sec. 13 steps 1-8).
+        S2 is the ARF (Asquith 1999, p. 32; HDM Sec. 13 steps 1-8).
 
         Args:
             city: 'austin', 'dallas' or 'houston'.
@@ -304,7 +319,8 @@ class HmsArfTexas:
     @log_call
     def scale_depth(depth, city: str, area_mi2: float = None, *, radius_mi: float = None,
                     recurrence_interval_yr: float, duration_hr: float = DURATION_HR,
-                    extrapolate: bool = False):
+                    extrapolate: bool = False,
+                    dallas_intercept_correction: bool = False):
         """
         Multiply a 1-day point depth (any depth unit) by the circular ARF.
 
@@ -314,14 +330,16 @@ class HmsArfTexas:
         arf = HmsArfTexas.circular_arf(
             city, area_mi2, radius_mi=radius_mi,
             recurrence_interval_yr=recurrence_interval_yr,
-            duration_hr=duration_hr, extrapolate=extrapolate)
+            duration_hr=duration_hr, extrapolate=extrapolate,
+            dallas_intercept_correction=dallas_intercept_correction)
         return depth * arf
 
     @staticmethod
     @log_call
     def scale_hyetograph(incremental_depths, city: str, area_mi2: float = None, *,
                          radius_mi: float = None, recurrence_interval_yr: float,
-                         duration_hr: float = DURATION_HR, extrapolate: bool = False):
+                         duration_hr: float = DURATION_HR, extrapolate: bool = False,
+                         dallas_intercept_correction: bool = False):
         """
         Scale every ordinate of a 24-hour incremental hyetograph by the ARF.
 
@@ -334,4 +352,5 @@ class HmsArfTexas:
         return HmsArfTexas.scale_depth(
             incremental_depths, city, area_mi2, radius_mi=radius_mi,
             recurrence_interval_yr=recurrence_interval_yr,
-            duration_hr=duration_hr, extrapolate=extrapolate)
+            duration_hr=duration_hr, extrapolate=extrapolate,
+            dallas_intercept_correction=dallas_intercept_correction)

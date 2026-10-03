@@ -22,7 +22,7 @@ import pytest
 
 from hms_commander import HmsArfTexas
 from hms_commander.HmsArfTexas import (
-    _TABLE7, _DALLAS_24_27_PRINTED, MAX_AREA_MI2, STUDY_AREAS,
+    _TABLE7, _DALLAS_24_27_CORRECTED, _DALLAS_24_27_PRINTED, MAX_AREA_MI2, STUDY_AREAS,
 )
 
 T = dict(recurrence_interval_yr=100)
@@ -93,9 +93,11 @@ def _numeric_arf(city, r, n=20001):
 @pytest.mark.parametrize("city", STUDY_AREAS)
 def test_closed_form_matches_integral_of_s2(city):
     # ARF2 in Table 7 is the closed-form integral of S2 (eq. 15); published
-    # coefficients are rounded, so allow a few thousandths.
+    # coefficients are rounded, so allow a few thousandths. The printed Dallas
+    # 24-27 intercept does not satisfy this; use the correction here.
     for r in (0.5, 1.5, 2.5, 4, 7, 10, 15, 22, 25, 30, 40, 50):
-        arf = HmsArfTexas.circular_arf(city, radius_mi=r, **T)
+        arf = HmsArfTexas.circular_arf(city, radius_mi=r, **T,
+                                       dallas_intercept_correction=True)
         assert arf == pytest.approx(_numeric_arf(city, r), abs=3e-3), (city, r)
 
 
@@ -103,23 +105,69 @@ def test_closed_form_matches_integral_of_s2(city):
 def test_segments_are_nearly_continuous(city):
     for seg in _TABLE7[city][1:]:
         r = seg[0]
-        below = HmsArfTexas.circular_arf(city, radius_mi=r - 1e-9, **T)
-        at = HmsArfTexas.circular_arf(city, radius_mi=r, **T)
+        below = HmsArfTexas.circular_arf(city, radius_mi=r - 1e-9, **T,
+                                         dallas_intercept_correction=True)
+        at = HmsArfTexas.circular_arf(city, radius_mi=r, **T,
+                                      dallas_intercept_correction=True)
         assert abs(below - at) < 2.5e-3, (city, r)  # rounding of published constants
 
 
-def test_dallas_24_27_printed_intercept_is_a_typo():
+def test_dallas_24_27_default_is_printed_value():
     # Table 7 prints 0.6800 in the ARF column but 0.6880 in the S2 column.
-    printed = HmsArfTexas.circular_arf("dallas", radius_mi=24.0, as_printed=True, **T)
-    default = HmsArfTexas.circular_arf("dallas", radius_mi=24.0, **T)
-    below = HmsArfTexas.circular_arf("dallas", radius_mi=24.0 - 1e-9, **T)
-    assert default - printed == pytest.approx(0.6880 - _DALLAS_24_27_PRINTED)
-    assert abs(default - below) < 5e-4          # continuous
-    assert abs(printed - below) > 7e-3          # printed value is not
-    assert abs(printed - _numeric_arf("dallas", 24.0)) > 7e-3
-    # other segments unaffected by the flag
-    assert HmsArfTexas.circular_arf("dallas", radius_mi=10, as_printed=True, **T) == \
-        HmsArfTexas.circular_arf("dallas", radius_mi=10, **T)
+    # The default reproduces the source; the correction is opt-in.
+    r = 24.0
+    default = HmsArfTexas.circular_arf("dallas", radius_mi=r, **T)
+    corrected = HmsArfTexas.circular_arf("dallas", radius_mi=r, **T,
+                                         dallas_intercept_correction=True)
+    below = HmsArfTexas.circular_arf("dallas", radius_mi=r - 1e-9, **T)
+    assert default == pytest.approx(0.6800 - 0.0058 * r + 17.9533 / r ** 2)
+    assert corrected - default == pytest.approx(_DALLAS_24_27_CORRECTED - _DALLAS_24_27_PRINTED)
+    assert abs(corrected - below) < 5e-4        # corrected is continuous
+    assert abs(default - below) > 7e-3          # printed value is not
+    assert abs(default - _numeric_arf("dallas", r)) > 7e-3
+    # other segments and cities unaffected by the flag
+    for city, rr in (("dallas", 10), ("dallas", 30), ("austin", 25), ("houston", 25)):
+        assert HmsArfTexas.circular_arf(city, radius_mi=rr, **T,
+                                        dallas_intercept_correction=True) == \
+            HmsArfTexas.circular_arf(city, radius_mi=rr, **T)
+
+
+def test_dallas_correction_forwarded_by_scale_helpers():
+    kw = dict(radius_mi=25.0, **T)
+    printed = HmsArfTexas.circular_arf("dallas", **kw)
+    fixed = HmsArfTexas.circular_arf("dallas", **kw, dallas_intercept_correction=True)
+    assert fixed != printed
+    assert HmsArfTexas.scale_depth(10.0, "dallas", **kw) == pytest.approx(10.0 * printed)
+    assert HmsArfTexas.scale_depth(10.0, "dallas", **kw,
+                                   dallas_intercept_correction=True) == pytest.approx(10.0 * fixed)
+    inc = [1.0, 2.0, 3.0]
+    assert HmsArfTexas.scale_hyetograph(inc, "dallas", **kw) == pytest.approx(np.array(inc) * printed)
+    assert HmsArfTexas.scale_hyetograph(
+        inc, "dallas", **kw, dallas_intercept_correction=True) == pytest.approx(np.array(inc) * fixed)
+    s = pd.Series(inc)
+    assert HmsArfTexas.scale_hyetograph(
+        s, "dallas", **kw, dallas_intercept_correction=True).sum() == pytest.approx(6.0 * fixed)
+
+
+def test_extrapolated_nonphysical_arf_raises():
+    # Houston R = 200 mi continues the last segment to a negative ARF.
+    with pytest.raises(ValueError, match=r"outside \(0, 1\]"):
+        HmsArfTexas.circular_arf("houston", radius_mi=200, extrapolate=True, **T)
+    with pytest.raises(ValueError):
+        HmsArfTexas.scale_depth(10.0, "houston", radius_mi=200, extrapolate=True, **T)
+    with pytest.raises(ValueError):
+        HmsArfTexas.scale_hyetograph([1.0, 2.0], "houston", radius_mi=200, extrapolate=True, **T)
+    # a modest extrapolation that stays physical is still allowed
+    assert 0 < HmsArfTexas.circular_arf("houston", radius_mi=55, extrapolate=True, **T) <= 1
+
+
+@pytest.mark.parametrize("city", STUDY_AREAS)
+@pytest.mark.parametrize("corrected", [False, True])
+def test_arf_in_unit_interval_over_published_domain(city, corrected):
+    for r in np.linspace(0.0, 50.0, 501):
+        arf = HmsArfTexas.circular_arf(city, radius_mi=float(r), **T,
+                                       dallas_intercept_correction=corrected)
+        assert 0 < arf <= 1, (city, r)
 
 
 _PDF = Path(os.environ.get(
@@ -150,8 +198,6 @@ def test_coefficients_match_pdf_text_layer():
         p = parsed[c]
         assert len(p["S"]) == len(p["A"]) == len(p["L"]) == len(segs)
         for seg, s, a, lim in zip(segs, p["S"], p["A"], p["L"]):
-            if c == "dallas" and seg[0] == 24:       # the one known discrepancy
-                a = (0.6880,) + a[1:]
             assert ((seg[0], seg[1]), (seg[2], seg[3]), (seg[4], seg[5], seg[6])) == (lim, s, a)
 
 
@@ -162,7 +208,8 @@ def test_coefficients_match_pdf_text_layer():
 @pytest.mark.parametrize("city", STUDY_AREAS)
 def test_arf_decreases_with_area(city):
     areas = np.geomspace(0.01, MAX_AREA_MI2, 400)
-    arf = np.array([HmsArfTexas.circular_arf(city, a, **T) for a in areas])
+    arf = np.array([HmsArfTexas.circular_arf(city, a, **T, dallas_intercept_correction=True)
+                    for a in areas])
     assert np.all((arf > 0) & (arf <= 1))
     # Published segments are fit independently and rounded, so a step up of
     # up to ~2.5e-3 can occur at a breakpoint; the trend is otherwise strict.

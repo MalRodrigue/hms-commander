@@ -15,10 +15,28 @@ Areal reduction factor helpers for design-storm workflows.
 
 `HmsArfTexas` implements the circular-watershed and cell-based areal-reduction
 factors of USGS WRIR 99-4267 (Table 7, Table 8) for Austin, Dallas and Houston.
-It is scoped to the published 1-day duration, 2-year-or-greater recurrence
-interval and 0-50 mi radius; out-of-range input raises unless
-`extrapolate=True`. Per the TxDOT HDM, applicability diminishes with distance
-from those cities and as duration departs from 1 day. It does not edit met files.
+It does not edit met files.
+
+**Scope.** 24-hour (1-day) design storm, recurrence interval of 2 years or
+greater, circular-equivalent radius 0-50 mi, and the three study areas.
+Out-of-range input raises `ValueError` unless `extrapolate=True`; with
+`extrapolate=True`, a computed ARF outside (0, 1] still raises. The TxDOT HDM
+cautions that applicability diminishes with distance from Austin, Dallas and
+Houston and as the design-storm duration departs from 1 day; the module does
+not check the watershed location.
+
+**Dallas 24-27 mi row.** By default the module reproduces Table 7 as printed,
+including an ARF intercept of 0.6800 for Dallas, 24 <= r <= 27 mi. The S2
+intercept in that row is 0.6880, and in the other 29 rows the ARF intercept
+equals the S2 intercept; 0.6880 also makes the ARF continuous at r = 24 mi.
+Pass `dallas_intercept_correction=True` to `circular_arf`, `scale_depth` or
+`scale_hyetograph` to use 0.6880 (ARF about 0.008 higher for Dallas areas of
+roughly 1,810-2,290 mi2). No erratum has been located; the correction is an
+inference from the report's own equations.
+
+**HDM Table 4-12 typos.** The HDM table differs from WRIR Table 7 in two
+Houston entries: the 7-11 mi ARF intercept (HDM 0.8708, WRIR 0.8078) and the
+15-20 mi ARF slope (HDM 0.00053, WRIR 0.0053). The module follows the WRIR.
 
 ```python
 from hms_commander import HmsArfTexas
