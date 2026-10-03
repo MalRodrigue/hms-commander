@@ -19,8 +19,11 @@ It does not edit met files.
 
 **Scope.** 24-hour (1-day) design storm, recurrence interval of 2 years or
 greater, circular-equivalent radius 0-50 mi, and the three study areas.
-Out-of-range input raises `ValueError` unless `extrapolate=True`; with
-`extrapolate=True`, a computed ARF outside (0, 1] still raises. The TxDOT HDM
+`extrapolate=True` relaxes only the radius/area domain (beyond 50 mi, with a
+logged warning). A duration other than 24 hr and a recurrence interval below
+2 years always raise `ValueError`, regardless of `extrapolate`; WRIR 99-4267
+(p. 25) limits the method to the one-day duration. A computed ARF outside
+(0, 1] also always raises. The TxDOT HDM
 cautions that applicability diminishes with distance from Austin, Dallas and
 Houston and as the design-storm duration departs from 1 day; the module does
 not check the watershed location.

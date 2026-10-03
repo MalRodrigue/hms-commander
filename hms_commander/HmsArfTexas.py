@@ -10,14 +10,19 @@ Implements the areal-reduction factor (ARF) equations published in Table 7 of
 The same equations are reproduced as Table 4-12 of the TxDOT Hydraulic Design
 Manual (Ch. 4, Sec. 13, 09/2019).
 
-Scope (everything outside it is rejected unless ``extrapolate=True``):
+Scope. Duration and recurrence interval are hard limits that ``extrapolate``
+never relaxes; only the radius/area domain can be extrapolated:
 
-- 1-day design storm only (the method rests on daily precipitation data).
+- 1-day (24 hr) design storm only (the method rests on daily precipitation
+  data; WRIR 99-4267 p. 25 limits it to the one-day duration). Any other
+  duration raises ``ValueError``, even with ``extrapolate=True``.
 - Three study areas only: Austin, Dallas, Houston.
 - Circular-watershed radius 0 to 50 mi (area 0 to ~7,850 mi2); non-circular
   watersheds use the report's cell method (distance of each cell to the
-  watershed centroid, 0 to 50 mi).
-- Recurrence interval of 2 years or greater. The published relation is the
+  watershed centroid, 0 to 50 mi). Beyond 50 mi raises ``ValueError`` unless
+  ``extrapolate=True`` (warning logged; last published segment continued).
+- Recurrence interval of 2 years or greater (smaller values raise
+  ``ValueError``, even with ``extrapolate=True``). The published relation is the
   "2-year or greater" depth-distance relation and is not a function of the
   recurrence interval within that range; the report notes that the true ARF
   does vary with recurrence interval, which this relation does not capture.
@@ -33,7 +38,7 @@ All methods are static - no instantiation required.
 """
 
 import math
-from typing import Dict, Sequence, Tuple, Union
+from typing import Dict, Sequence, Tuple
 
 import numpy as np
 
@@ -100,7 +105,7 @@ _DALLAS_24_27_CORRECTED = 0.6880
 
 STUDY_AREAS = tuple(_TABLE7)
 MAX_RADIUS_MI = 50.0
-MAX_AREA_MI2 = math.pi * MAX_RADIUS_MI ** 2   # ~7,854 mi2
+MAX_AREA_MI2 = math.pi * MAX_RADIUS_MI**2  # ~7,854 mi2
 MIN_RECURRENCE_INTERVAL_YR = 2.0
 DURATION_HR = 24.0
 
@@ -116,8 +121,10 @@ class HmsArfTexas:
 
     Caution: derived from Austin, Dallas and Houston daily data only. The HDM
     states the method's applicability diminishes with distance from those
-    cities and as the storm duration departs from 1 day. Out-of-scope input
-    raises ``ValueError`` unless ``extrapolate=True``, which logs a warning.
+    cities and as the storm duration departs from 1 day. Duration other
+    than 24 hr and recurrence interval below 2 yr always raise ``ValueError``
+    (WRIR 99-4267 p. 25). Only the radius/area domain (0-50 mi) can be
+    extrapolated, with ``extrapolate=True`` (a warning is logged).
 
     Example:
         >>> from hms_commander import HmsArfTexas
@@ -143,23 +150,24 @@ class HmsArfTexas:
         return key
 
     @staticmethod
-    def _check_scope(recurrence_interval_yr, duration_hr, extrapolate: bool) -> None:
-        problems = []
+    def _check_scope(recurrence_interval_yr, duration_hr) -> None:
+        """Hard limits (WRIR 99-4267 p. 25); never relaxed by ``extrapolate``."""
         if not np.isfinite(recurrence_interval_yr) or recurrence_interval_yr <= 0:
             raise ValueError("recurrence_interval_yr must be a positive number")
         if recurrence_interval_yr < MIN_RECURRENCE_INTERVAL_YR:
-            problems.append(
+            raise ValueError(
                 f"recurrence interval {recurrence_interval_yr} yr is below the "
-                f"{MIN_RECURRENCE_INTERVAL_YR:g}-yr minimum of the published relation"
+                f"{MIN_RECURRENCE_INTERVAL_YR:g}-yr minimum of the published "
+                "relation (Asquith, 1999); extrapolate=True does not relax this"
             )
         if not np.isfinite(duration_hr) or duration_hr <= 0:
             raise ValueError("duration_hr must be a positive number")
         if duration_hr != DURATION_HR:
-            problems.append(
+            raise ValueError(
                 f"duration {duration_hr} hr is not the 1-day ({DURATION_HR:g} hr) "
-                "duration the method was derived for"
+                "duration the method was derived for (WRIR 99-4267 p. 25); "
+                "extrapolate=True does not relax this"
             )
-        HmsArfTexas._report(problems, extrapolate)
 
     @staticmethod
     def _report(problems, extrapolate: bool) -> None:
@@ -171,15 +179,27 @@ class HmsArfTexas:
                 f"Outside the published scope of Asquith (1999): {msg}. "
                 "Pass extrapolate=True to proceed anyway (a warning is logged)."
             )
-        logger.warning("Extrapolating Asquith (1999) Texas ARF beyond its published scope: %s", msg)
+        logger.warning(
+            "Extrapolating Asquith (1999) Texas ARF beyond its published scope: %s", msg
+        )
 
     @staticmethod
-    def _segment(city: str, r: float, extrapolate: bool, dallas_intercept_correction: bool = False) -> _Segment:
+    def _segment(
+        city: str,
+        r: float,
+        extrapolate: bool,
+        dallas_intercept_correction: bool = False,
+    ) -> _Segment:
         if not np.isfinite(r) or r < 0:
-            raise ValueError(f"distance/radius must be a finite number >= 0 mi, got {r}")
+            raise ValueError(
+                f"distance/radius must be a finite number >= 0 mi, got {r}"
+            )
         if r > MAX_RADIUS_MI * (1 + 1e-12):  # tolerate area->radius round-off
             HmsArfTexas._report(
-                [f"radius {r:.3f} mi exceeds the published maximum of {MAX_RADIUS_MI:g} mi"],
+                [
+                    f"radius {r:.3f} mi exceeds the published maximum of "
+                    f"{MAX_RADIUS_MI:g} mi"
+                ],
                 extrapolate,
             )
         segs = _TABLE7[city]
@@ -227,10 +247,16 @@ class HmsArfTexas:
 
     @staticmethod
     @log_call
-    def circular_arf(city: str, area_mi2: float = None, *, radius_mi: float = None,
-                     recurrence_interval_yr: float, duration_hr: float = DURATION_HR,
-                     extrapolate: bool = False,
-                     dallas_intercept_correction: bool = False) -> float:
+    def circular_arf(
+        city: str,
+        area_mi2: float = None,
+        *,
+        radius_mi: float = None,
+        recurrence_interval_yr: float,
+        duration_hr: float = DURATION_HR,
+        extrapolate: bool = False,
+        dallas_intercept_correction: bool = False,
+    ) -> float:
         """
         ARF for a circular watershed, Table 7 column "ARF2(r)".
 
@@ -248,9 +274,11 @@ class HmsArfTexas:
             radius_mi: Radius of the circular watershed, miles.
             recurrence_interval_yr: Design-storm recurrence interval, years
                 (required; must be >= 2).
-            duration_hr: Design-storm duration, hours (must be 24).
-            extrapolate: Permit out-of-range input; logs a warning. Beyond
-                50 mi the last published segment is continued.
+            duration_hr: Design-storm duration, hours. Must be 24 (the
+                one-day limitation, WRIR 99-4267 p. 25); never relaxed.
+            extrapolate: Permit radius > 50 mi only; logs a warning and
+                continues the last published segment. Does not relax the
+                24-hr duration or the 2-yr recurrence-interval limits.
             dallas_intercept_correction: The default reproduces Table 7
                 exactly, including the printed Dallas 24-27 mi ARF intercept
                 0.6800. If True, use 0.6880, the value implied by the S2
@@ -261,32 +289,44 @@ class HmsArfTexas:
             Areal-reduction factor, dimensionless, 0 < ARF <= 1.
 
         Raises:
-            ValueError: unknown city, bad/ambiguous size input, input
-                outside the published scope with ``extrapolate=False``, or
-                (with ``extrapolate=True``) a computed ARF outside (0, 1].
+            ValueError: unknown city, bad/ambiguous size input, duration
+                != 24 hr or recurrence interval < 2 yr (always, regardless
+                of ``extrapolate``), radius > 50 mi with
+                ``extrapolate=False``, or a computed ARF outside (0, 1].
         """
         c = HmsArfTexas._city(city)
         if (area_mi2 is None) == (radius_mi is None):
             raise ValueError("Provide exactly one of area_mi2 or radius_mi")
-        r = HmsArfTexas.radius_from_area(area_mi2) if radius_mi is None else float(radius_mi)
-        HmsArfTexas._check_scope(recurrence_interval_yr, duration_hr, extrapolate)
+        r = (
+            HmsArfTexas.radius_from_area(area_mi2)
+            if radius_mi is None
+            else float(radius_mi)
+        )
+        HmsArfTexas._check_scope(recurrence_interval_yr, duration_hr)
         _, _, _, _, a, b, k = HmsArfTexas._segment(
-            c, r, extrapolate, dallas_intercept_correction)
+            c, r, extrapolate, dallas_intercept_correction
+        )
         if r == 0:
             return 1.0
-        arf = a - b * r + k / r ** 2
+        arf = a - b * r + k / r**2
         if not 0 < arf <= 1:
             raise ValueError(
                 f"Computed ARF {arf:.4f} at radius {r:.3f} mi is outside (0, 1]; "
-                "the extrapolated relation is not physical here.")
+                "the extrapolated relation is not physical here."
+            )
         return arf
 
     @staticmethod
     @log_call
-    def noncircular_arf(city: str, distances_mi: Sequence[float],
-                        areas_mi2: Sequence[float], *, recurrence_interval_yr: float,
-                        duration_hr: float = DURATION_HR,
-                        extrapolate: bool = False) -> float:
+    def noncircular_arf(
+        city: str,
+        distances_mi: Sequence[float],
+        areas_mi2: Sequence[float],
+        *,
+        recurrence_interval_yr: float,
+        duration_hr: float = DURATION_HR,
+        extrapolate: bool = False,
+    ) -> float:
         """
         ARF for a non-circular watershed by the report's cell method (Table 8).
 
@@ -308,19 +348,31 @@ class HmsArfTexas:
         d = np.asarray(distances_mi, dtype=float)
         a = np.asarray(areas_mi2, dtype=float)
         if d.ndim != 1 or d.shape != a.shape or d.size == 0:
-            raise ValueError("distances_mi and areas_mi2 must be equal-length, non-empty 1-D sequences")
+            raise ValueError(
+                "distances_mi and areas_mi2 must be equal-length, non-empty "
+                "1-D sequences"
+            )
         if not np.all(np.isfinite(a)) or np.any(a <= 0):
             raise ValueError("cell areas must be finite and > 0")
-        HmsArfTexas._check_scope(recurrence_interval_yr, duration_hr, extrapolate)
-        s2 = np.array([HmsArfTexas.depth_distance(c, x, extrapolate=extrapolate) for x in d])
+        HmsArfTexas._check_scope(recurrence_interval_yr, duration_hr)
+        s2 = np.array(
+            [HmsArfTexas.depth_distance(c, x, extrapolate=extrapolate) for x in d]
+        )
         return float(np.sum(s2 * a) / np.sum(a))
 
     @staticmethod
     @log_call
-    def scale_depth(depth, city: str, area_mi2: float = None, *, radius_mi: float = None,
-                    recurrence_interval_yr: float, duration_hr: float = DURATION_HR,
-                    extrapolate: bool = False,
-                    dallas_intercept_correction: bool = False):
+    def scale_depth(
+        depth,
+        city: str,
+        area_mi2: float = None,
+        *,
+        radius_mi: float = None,
+        recurrence_interval_yr: float,
+        duration_hr: float = DURATION_HR,
+        extrapolate: bool = False,
+        dallas_intercept_correction: bool = False,
+    ):
         """
         Multiply a 1-day point depth (any depth unit) by the circular ARF.
 
@@ -328,18 +380,29 @@ class HmsArfTexas:
         Parameters other than ``depth`` are as in :meth:`circular_arf`.
         """
         arf = HmsArfTexas.circular_arf(
-            city, area_mi2, radius_mi=radius_mi,
+            city,
+            area_mi2,
+            radius_mi=radius_mi,
             recurrence_interval_yr=recurrence_interval_yr,
-            duration_hr=duration_hr, extrapolate=extrapolate,
-            dallas_intercept_correction=dallas_intercept_correction)
+            duration_hr=duration_hr,
+            extrapolate=extrapolate,
+            dallas_intercept_correction=dallas_intercept_correction,
+        )
         return depth * arf
 
     @staticmethod
     @log_call
-    def scale_hyetograph(incremental_depths, city: str, area_mi2: float = None, *,
-                         radius_mi: float = None, recurrence_interval_yr: float,
-                         duration_hr: float = DURATION_HR, extrapolate: bool = False,
-                         dallas_intercept_correction: bool = False):
+    def scale_hyetograph(
+        incremental_depths,
+        city: str,
+        area_mi2: float = None,
+        *,
+        radius_mi: float = None,
+        recurrence_interval_yr: float,
+        duration_hr: float = DURATION_HR,
+        extrapolate: bool = False,
+        dallas_intercept_correction: bool = False,
+    ):
         """
         Scale every ordinate of a 24-hour incremental hyetograph by the ARF.
 
@@ -350,7 +413,12 @@ class HmsArfTexas:
         if isinstance(incremental_depths, (list, tuple)):
             incremental_depths = np.asarray(incremental_depths, dtype=float)
         return HmsArfTexas.scale_depth(
-            incremental_depths, city, area_mi2, radius_mi=radius_mi,
+            incremental_depths,
+            city,
+            area_mi2,
+            radius_mi=radius_mi,
             recurrence_interval_yr=recurrence_interval_yr,
-            duration_hr=duration_hr, extrapolate=extrapolate,
-            dallas_intercept_correction=dallas_intercept_correction)
+            duration_hr=duration_hr,
+            extrapolate=extrapolate,
+            dallas_intercept_correction=dallas_intercept_correction,
+        )
