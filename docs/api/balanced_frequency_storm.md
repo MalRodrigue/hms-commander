@@ -44,7 +44,7 @@ HMS evidence only, not as validation of an API option.
 
 HMS 4.13 applies the 30-minute storm-area reduction factor below 30 minutes.
 This differs from the Technical Reference Manual wording; the short-interval
-area fixtures cover that observed behavior. The TP-40/HYDRO-35 depth-area curves
+area fixtures cover that observed behavior. The TP-40/TP-49 depth-area curves
 are documented through 400 mi²; the API logs a warning above that area, although
 HMS 4.13 accepts larger values in the fixture matrix.
 

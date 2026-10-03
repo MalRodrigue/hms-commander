@@ -115,7 +115,7 @@ class BalancedFrequencyStorm:
         """HMS TP-40/TP-49 depth-area reduction factor (1.0 for a point storm).
 
         HMS 4.13 uses the 30-minute factor for shorter durations; this differs
-        from the Technical Reference Manual wording.  The TP-40/HYDRO-35
+        from the Technical Reference Manual wording.  The TP-40/TP-49
         depth-area curves are documented through 400 square miles.
         """
         if storm_area_sqmi <= 0:
@@ -237,7 +237,7 @@ class BalancedFrequencyStorm:
                 (25, 33, 50, 67 or 75 in HMS).
             storm_area_sqmi: Storm area for depth-area reduction (0 = point).
                 A warning is logged above 400 sq mi, the documented extent of
-                the TP-40/HYDRO-35 depth-area curves.
+                the TP-40/TP-49 depth-area curves.
             exceedance_pct: Exceedance probability in percent (50, 20, 10 are
                 the only values for which HMS applies a conversion factor).
             convert_partial_to_annual: Apply the HMS partial -> annual factor
@@ -312,7 +312,7 @@ class BalancedFrequencyStorm:
         if area > 400:
             logger.warning(
                 "storm_area_sqmi=%s exceeds 400 sq mi, the documented extent of "
-                "the TP-40/HYDRO-35 depth-area curves",
+                "the TP-40/TP-49 depth-area curves",
                 area,
             )
         reduced = {
