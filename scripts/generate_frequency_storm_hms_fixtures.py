@@ -126,8 +126,9 @@ def case(
     blank=(),
     user_area=True,
     legacy=False,
+    custom_depths=None,
 ):
-    return dict(
+    out = dict(
         name=name,
         ari=ari,
         duration_min=dur,
@@ -142,6 +143,9 @@ def case(
         user_specified_area=user_area,
         legacy_format=legacy,
     )
+    if custom_depths is not None:
+        out["custom_depths"] = custom_depths
+    return out
 
 
 def build_cases():
@@ -194,6 +198,53 @@ def build_cases():
         case("blank10_30_area20", blank=(10, 30), area=20),
         case("blank30_only_6h5m", dur=360, iv=5, blank=(30,)),
         case("resort_yes", extra={"Re-sort Storm Symmetrically": "Yes"}, pk=67),
+        case(
+            "resort_perturbed_off",
+            dur=360,
+            iv=15,
+            pk=50,
+            custom_depths={
+                5: 1.17,
+                10: 1.88,
+                15: 2.32,
+                30: 3.2,
+                60: 3.3,
+                120: 7.0,
+                180: 7.1,
+                360: 8.63,
+                720: 10.3,
+                1440: 12.1,
+                2880: 14.3,
+                4320: 15.5,
+                5760: 16.0,
+                10080: 17.0,
+                14400: 17.8,
+            },
+        ),
+        case(
+            "resort_perturbed_on",
+            dur=360,
+            iv=15,
+            pk=50,
+            extra={"Re-sort Storm Symmetrically": "Yes"},
+            custom_depths={
+                5: 1.17,
+                10: 1.88,
+                15: 2.32,
+                30: 3.2,
+                60: 3.3,
+                120: 7.0,
+                180: 7.1,
+                360: 8.63,
+                720: 10.3,
+                1440: 12.1,
+                2880: 14.3,
+                4320: 15.5,
+                5760: 16.0,
+                10080: 17.0,
+                14400: 17.8,
+            },
+        ),
         case("area_from_subbasin_10", user_area=False, area=999),
         case("storm_type_atlas14_area40", extra={"Storm Type": "Atlas 14"}, area=40),
         case(
@@ -230,6 +281,11 @@ def depths_for(table, ari_years):
     ari, rows = table
     i = ari.index(ari_years)
     return {m: rows[lab][i] for m, lab in zip(DURATIONS_MIN, DURATION_LABELS)}
+
+
+def case_depths(table, c):
+    """Return the NOAA table depths, or a deliberate fixture perturbation."""
+    return c.get("custom_depths") or depths_for(table, c["ari"])
 
 
 def met_text(c, depths):
@@ -315,7 +371,7 @@ def main():
     (work / "B1.basin").write_text(BASIN)
     for c in cases:
         n = c["name"]
-        (work / f"{n}.met").write_text(met_text(c, depths_for(table, c["ari"])))
+        (work / f"{n}.met").write_text(met_text(c, case_depths(table, c)))
         (work / f"C_{n}.control").write_text(control_text(c))
         hms += (
             f"Precipitation: {n}\n     FileName: {n}.met\nEnd:\n\n"
@@ -366,7 +422,7 @@ def main():
         for k, v in enumerate(series[:n_blocks], start=1):
             rows.append((c["name"], k, f"{float(v):.12g}"))
         c["n_blocks"] = n_blocks
-        c["depths_in"] = {str(m): d for m, d in depths_for(table, c["ari"]).items()}
+        c["depths_in"] = {str(m): d for m, d in case_depths(table, c).items()}
 
     with open(fx / "hms_reference_series.csv", "w", newline="") as fh:
         w = csv.writer(fh)
@@ -396,6 +452,11 @@ def main():
                 "legacy_format cases use the 3.x 'Depth:' layout"
             ),
             "control": "time interval = storm time interval, start 1 Jan 2000 00:00",
+            "resort_perturbed_cases": (
+                "resort_perturbed_off/on use the same positive, nondecreasing "
+                "DDF table with non-monotone increments to distinguish the HMS "
+                "Re-sort Storm Symmetrically setting"
+            ),
         },
         "cases": cases,
     }

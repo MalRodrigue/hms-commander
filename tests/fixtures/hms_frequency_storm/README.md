@@ -16,6 +16,12 @@ interval. Met models are `Frequency Based Hypothetical` (the "Frequency Storm" m
 native 4.13 layout (`Depth <min>:` rows) except the `leg_*` cases, which use the 3.x layout
 (`Depth:` rows with no 10-/30-min entries, which HMS augments on load).
 
+The paired `resort_perturbed_off` and `resort_perturbed_on` cases use the same
+positive, nondecreasing perturbed DDF table. Its nested increments are
+non-monotone, so the HMS 4.13 `Re-sort Storm Symmetrically` setting changes the
+output. They document the setting's observed behavior; the public generator does
+not expose a corresponding option.
+
 Regenerate (needs HEC-HMS 4.13 on Windows):
 
     python scripts/generate_frequency_storm_hms_fixtures.py

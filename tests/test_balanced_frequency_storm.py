@@ -144,6 +144,8 @@ class TestAgainstHecHms413:
 
     @pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
     def test_matches_hms(self, case):
+        if case["extra"].get("Re-sort Storm Symmetrically") == "Yes":
+            pytest.skip("The public API deliberately does not expose HMS re-sort")
         hyeto = _generate(case)
         mine = hyeto["incremental_depth"].to_numpy()[1:]  # drop t=0 sentinel
         ref = SERIES[case["name"]]
@@ -167,8 +169,23 @@ class TestAgainstHecHms413:
             "pda50_24h15m",
             "ann_ann50_24h15m",
             "area50_24h15m_pk50",
+            "resort_perturbed_off",
+            "resort_perturbed_on",
         ):
             assert required in names
+
+    def test_resort_perturbed_fixtures_distinguish_hms_option(self):
+        by_name = {case["name"]: case for case in CASES}
+        off_case = by_name["resort_perturbed_off"]
+        increments = np.diff(
+            np.concatenate(
+                [[0.0], Direct.cumulative_depths(_depths(off_case), 360, 15)]
+            )
+        )
+        assert np.any(np.diff(increments) > 0)
+        off = SERIES["resort_perturbed_off"]
+        on = SERIES["resort_perturbed_on"]
+        assert float(np.max(np.abs(off - on))) > TARGET_TOLERANCE_IN
 
 
 class TestBehavior:
@@ -205,6 +222,29 @@ class TestBehavior:
         b = BalancedFrequencyStorm.generate_hyetograph(KERRVILLE_100YR, 1440, 15, 50)
         assert np.allclose(a["incremental_depth"], b["incremental_depth"])
 
+    def test_sequence_depths_and_durations_must_have_equal_lengths(self):
+        with pytest.raises(ValueError, match="equal lengths"):
+            BalancedFrequencyStorm.generate_hyetograph(
+                [KERRVILLE_100YR[5], KERRVILLE_100YR[15], KERRVILLE_100YR[30]],
+                30,
+                15,
+                durations_min=[5, 15],
+            )
+
+    @pytest.mark.parametrize(
+        "depths, message",
+        [
+            ({5: True, 15: 2.32}, "boolean"),
+            ({5: np.nan, 15: 2.32}, "finite and positive"),
+            ({5: np.inf, 15: 2.32}, "finite and positive"),
+            ({5: -1.0, 15: 2.32}, "finite and positive"),
+            ({5: 1.17, 15: 2.32, 30: 2.0}, "ERROR 20025"),
+        ],
+    )
+    def test_ddf_depths_must_be_valid_and_nondecreasing(self, depths, message):
+        with pytest.raises(ValueError, match=message):
+            BalancedFrequencyStorm.generate_hyetograph(depths, 15, 5, 50)
+
     def test_area_reduction_values(self):
         arf = BalancedFrequencyStorm.areal_reduction_factor
         assert arf(60, 0) == 1.0
@@ -240,6 +280,19 @@ class TestBehavior:
                 KERRVILLE_100YR, 1440, 15, 50, **kw
             )
             assert np.allclose(other["incremental_depth"], point["incremental_depth"])
+
+    def test_partial_to_annual_requires_exceedance_probability(self):
+        with pytest.raises(ValueError, match="exceedance_pct is required"):
+            BalancedFrequencyStorm.generate_hyetograph(
+                KERRVILLE_100YR, 1440, 15, 50, convert_partial_to_annual=True
+            )
+
+    def test_area_over_documented_curve_limit_warns(self, caplog):
+        with caplog.at_level("WARNING"):
+            BalancedFrequencyStorm.generate_hyetograph(
+                KERRVILLE_100YR, 1440, 15, 50, storm_area_sqmi=401
+            )
+        assert "400 sq mi" in caplog.text
 
     def test_hydro35_augmentation(self):
         d = {k: v for k, v in KERRVILLE_100YR.items() if k not in (10, 30)}

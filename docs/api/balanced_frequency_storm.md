@@ -16,22 +16,37 @@ The implementation follows the description of a balanced Frequency Storm in the
 [HEC-HMS Technical Reference Manual, §5.2.6 and §5.2.6.1](https://www.hec.usace.army.mil/Software/hec-hms/documentation/HEC-HMS_Technical_Reference_Manual-20231106.pdf)
 and the Frequency Storm parameter descriptions in the [HEC-HMS 4.13 User's
 Manual, *Precipitation*](https://www.hec.usace.army.mil/confluence/cwmsdocs/hmsum/4.13/precipitation-292095083.html).
-The fixture cases also cover the 4.13 release behavior for missing depths and
+The fixture cases also cover selected 4.13 release behavior for missing depths and
 the re-sort option described in the [4.13 release notes](https://www.hec.usace.army.mil/confluence/hmsdocs/hmsum/4.14/release-notes/v-4-13-0-release-notes).
 
 Tests assert at most 0.001 in difference for every interval and total depth in
-all 68 checked HEC-HMS 4.13 cases (the observed maximum is approximately
-5e-12 in). This is evidence for those cases, not a claim of general numerical
+68 public-default/off HEC-HMS 4.13 cases (the observed maximum is approximately
+5e-12 in). Two additional perturbed-DDF fixtures run HMS with re-sort on and
+off. This is evidence for those cases, not a claim of general numerical
 equivalence across HMS versions or settings.
 
 Not validated or implemented: user-specified area-reduction functions; spatial
 distribution by subbasin, precipitation-frequency grids, or depth-area analysis;
 metric units; and direct `.met` parsing/writing. The public generator accepts
-depth mappings or sequences only. It requires an explicit depth at both the
-interval and total duration, so 4.13's automatic interpolation for arbitrary
-missing intermediate depths is not exposed. The HEC-HMS re-sort option is not a
-public switch; the one fixture used monotonic increments, for which it does not
-change the result.
+depth mappings or sequences only. It implements log-log interpolation between
+the supplied DDF durations, so omitted intermediate durations can affect the
+result; that behavior is only partly validated. It still requires explicit
+depths at the selected interval and total duration. The HEC-HMS re-sort option
+is not a public switch and is not represented as an equivalent API behavior.
+
+## Observed HMS details
+
+For the default (re-sort off), block placement follows HMS 4.13 duration order,
+including the non-monotone-increment fixtures. This differs from the Technical
+Reference Manual wording that describes descending order. The paired perturbed
+re-sort fixtures show that re-sort on changes the output; they are retained as
+HMS evidence only, not as validation of an API option.
+
+HMS 4.13 applies the 30-minute storm-area reduction factor below 30 minutes.
+This differs from the Technical Reference Manual wording; the short-interval
+area fixtures cover that observed behavior. The TP-40/HYDRO-35 depth-area curves
+are documented through 400 mi²; the API logs a warning above that area, although
+HMS 4.13 accepts larger values in the fixture matrix.
 
 ```python
 from hms_commander import BalancedFrequencyStorm

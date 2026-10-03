@@ -27,9 +27,11 @@ HEC-HMS 4.13 output; see ``tests/fixtures/hms_frequency_storm``):
 4. Cumulative depth is interpolated at every multiple of the time interval,
    linearly in log(duration)-log(depth) space; successive differences give the
    incremental blocks.
-5. Blocks are arranged with the alternating block method: the largest block is
-   placed at the peak-intensity position and the remaining blocks, in
-   descending order, alternate before/after it.
+5. Blocks are arranged with the alternating block method: the first nested
+   block is placed at the peak-intensity position and the remaining blocks
+   alternate before/after it in duration order.  This follows observed HMS
+   4.13 behavior for non-monotone increments; it differs from the TRM wording
+   that describes descending order.
 
 Time Axis:
     Output DataFrames follow the repository convention (a t=0 zero-sentinel row
@@ -98,7 +100,8 @@ class BalancedFrequencyStorm:
     #: square miles.  ``RF_inf`` is tabulated below at table durations (minutes)
     #: and interpolated linearly in ln(duration) vs ln(1 - RF_inf) between them.
     #: Values were derived empirically from HEC-HMS 4.13 output (the formula is
-    #: not published); durations <= 30 min use the 30-min value.
+    #: not published).  HMS 4.13 applies the 30-min value below 30 min, despite
+    #: the TRM wording that says no adjustment is made below 30 min.
     AREA_DECAY = 0.015
     _RF_INF_TABLE_MIN = (30, 60, 180, 360, 1440, 2880, 5760, 10080, 14400)
     _RF_INF_TABLE = (0.52, 0.65, 0.78, 0.83, 0.91, 0.932, 0.945, 0.951, 0.956)
@@ -109,7 +112,12 @@ class BalancedFrequencyStorm:
 
     @staticmethod
     def areal_reduction_factor(duration_min: float, storm_area_sqmi: float) -> float:
-        """HMS TP-40/TP-49 depth-area reduction factor (1.0 for a point storm)."""
+        """HMS TP-40/TP-49 depth-area reduction factor (1.0 for a point storm).
+
+        HMS 4.13 uses the 30-minute factor for shorter durations; this differs
+        from the Technical Reference Manual wording.  The TP-40/HYDRO-35
+        depth-area curves are documented through 400 square miles.
+        """
         if storm_area_sqmi <= 0:
             return 1.0
         durs = BalancedFrequencyStorm._RF_INF_TABLE_MIN
@@ -124,11 +132,7 @@ class BalancedFrequencyStorm:
     @staticmethod
     def augment_depths(depths: Mapping[int, float]) -> Dict[int, float]:
         """Add HYDRO-35 estimated 10-min and 30-min depths when they are absent."""
-        out = {
-            int(k): float(v)
-            for k, v in depths.items()
-            if v is not None and not _isnan(v)
-        }
+        out = _validate_depth_table(depths)
         if 10 not in out and 5 in out and 15 in out:
             out[10] = 0.59 * out[15] + 0.41 * out[5]
         if 30 not in out and 15 in out and 60 in out:
@@ -165,7 +169,9 @@ class BalancedFrequencyStorm:
         is ``depth(k*dt) - depth((k-1)*dt)``. HMS places them in that order
         (it does not re-sort by value), which matters only where the
         interpolated increments are not monotone (at changes of slope between
-        depth-duration table knots).
+        depth-duration table knots).  The non-monotone HMS 4.13 fixtures support
+        this behavior; it differs from the Technical Reference Manual's
+        descending-order wording.
         """
         order = np.asarray(increments, dtype=float)
         n = len(order)
@@ -221,14 +227,17 @@ class BalancedFrequencyStorm:
         Args:
             depths: Point depths (inches) by duration. Either a mapping
                 ``{duration_min: depth}`` or a sequence aligned with
-                ``durations_min`` (default: the 15 standard HMS durations,
-                ``None``/NaN entries are ignored).
+                ``durations_min`` (default: the 15 standard HMS durations).
+                Every supplied depth must be finite and positive; omit an
+                unavailable duration rather than supplying ``None`` or NaN.
             total_duration_min: Storm duration (minutes); must have a depth.
             time_interval_min: Computation/intensity interval (minutes); must
                 have a depth.
             peak_position_pct: Percent of the storm before the peak block
                 (25, 33, 50, 67 or 75 in HMS).
             storm_area_sqmi: Storm area for depth-area reduction (0 = point).
+                A warning is logged above 400 sq mi, the documented extent of
+                the TP-40/HYDRO-35 depth-area curves.
             exceedance_pct: Exceedance probability in percent (50, 20, 10 are
                 the only values for which HMS applies a conversion factor).
             convert_partial_to_annual: Apply the HMS partial -> annual factor
@@ -246,6 +255,17 @@ class BalancedFrequencyStorm:
         Returns:
             DataFrame with ``hour``, ``incremental_depth`` and
             ``cumulative_depth`` (t=0 sentinel row first).
+
+        Notes:
+            Cumulative depths are interpolated linearly in log(duration)-
+            log(depth) space between supplied durations.  Omitting intermediate
+            durations is therefore supported by the implementation, but is only
+            partly validated against HMS 4.13; the selected interval and total
+            duration must still be supplied explicitly.
+
+            Blocks follow the observed HMS 4.13 duration order.  This differs
+            from the Technical Reference Manual's descending-order wording; the
+            HMS re-sort setting is not exposed by this API.
         """
         if peak_position_pct not in BalancedFrequencyStorm.PEAK_POSITIONS_PCT:
             logger.warning(
@@ -253,16 +273,21 @@ class BalancedFrequencyStorm:
                 f"{BalancedFrequencyStorm.PEAK_POSITIONS_PCT}"
             )
         if not isinstance(depths, Mapping):
-            durs = list(durations_min or BalancedFrequencyStorm.STANDARD_DURATIONS_MIN)
-            depths = dict(zip(durs, depths))
+            durs = list(
+                BalancedFrequencyStorm.STANDARD_DURATIONS_MIN
+                if durations_min is None
+                else durations_min
+            )
+            values = list(depths)
+            if len(values) != len(durs):
+                raise ValueError(
+                    "Sequence depths and durations_min must have equal lengths"
+                )
+            depths = dict(zip(durs, values))
         table = (
             BalancedFrequencyStorm.augment_depths(depths)
             if augment
-            else {
-                int(k): float(v)
-                for k, v in depths.items()
-                if v is not None and not _isnan(v)
-            }
+            else _validate_depth_table(depths)
         )
         for needed, label in (
             (total_duration_min, "storm duration"),
@@ -282,11 +307,21 @@ class BalancedFrequencyStorm:
         if method not in ("tp40_tp49", "none"):
             raise ValueError("area_reduction must be 'tp40_tp49' or 'none'")
         area = float(storm_area_sqmi) if method == "tp40_tp49" else 0.0
+        if area > 400:
+            logger.warning(
+                "storm_area_sqmi=%s exceeds 400 sq mi, the documented extent of "
+                "the TP-40/HYDRO-35 depth-area curves",
+                area,
+            )
         reduced = {
             d: v * BalancedFrequencyStorm.areal_reduction_factor(d, area)
             for d, v in table.items()
         }
-        if convert_partial_to_annual and exceedance_pct is not None:
+        if convert_partial_to_annual and exceedance_pct is None:
+            raise ValueError(
+                "exceedance_pct is required when convert_partial_to_annual=True"
+            )
+        if convert_partial_to_annual:
             factor = (
                 BalancedFrequencyStorm.PARTIAL_TO_ANNUAL_FACTORS.get(
                     int(exceedance_pct)
@@ -307,8 +342,39 @@ class BalancedFrequencyStorm:
         return build_hyetograph_frame(np.insert(blocks, 0, 0.0), int(time_interval_min))
 
 
-def _isnan(value) -> bool:
-    try:
-        return math.isnan(float(value))
-    except (TypeError, ValueError):
-        return False
+def _validate_depth_table(depths: Mapping[int, float]) -> Dict[int, float]:
+    """Return a finite, positive, nondecreasing duration/depth table."""
+    table = {}
+    for duration, depth in depths.items():
+        if isinstance(duration, (bool, np.bool_)):
+            raise ValueError("DDF durations must not be boolean values")
+        if isinstance(depth, (bool, np.bool_)):
+            raise ValueError("DDF depths must not be boolean values")
+        try:
+            duration_value = float(duration)
+            depth_value = float(depth)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("DDF durations and depths must be numeric") from exc
+        if not math.isfinite(duration_value) or duration_value <= 0:
+            raise ValueError("DDF durations must be finite and positive")
+        if not duration_value.is_integer():
+            raise ValueError("DDF durations must be whole minutes")
+        if not math.isfinite(depth_value) or depth_value <= 0:
+            raise ValueError("DDF depths must be finite and positive")
+        duration_int = int(duration_value)
+        if duration_int in table:
+            raise ValueError(f"Duplicate DDF duration: {duration_int} min")
+        table[duration_int] = depth_value
+
+    if not table:
+        raise ValueError("At least one DDF duration/depth pair is required")
+    ordered = dict(sorted(table.items()))
+    previous = None
+    for duration, depth in ordered.items():
+        if previous is not None and depth < previous:
+            raise ValueError(
+                "DDF depths must be nondecreasing with duration; HEC-HMS 4.13 "
+                "rejects decreasing tables with ERROR 20025"
+            )
+        previous = depth
+    return ordered

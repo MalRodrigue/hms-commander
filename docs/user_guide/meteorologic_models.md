@@ -56,7 +56,8 @@ against 68 HEC-HMS 4.13 fixture cases to a 0.001-in per-interval and total-depth
 tolerance; this validation does not establish equivalence outside that matrix. The
 older `FrequencyStorm` class is a different, fixed-pattern HCFCD generator. See
 [BalancedFrequencyStorm](../api/balanced_frequency_storm.md) for HEC manual
-references and unvalidated/unsupported HMS options.
+references, observed 4.13 differences from the Technical Reference Manual, and
+unvalidated/unsupported HMS options.
 
 ```python
 from hms_commander import BalancedFrequencyStorm
