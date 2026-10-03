@@ -123,6 +123,9 @@ from .FrequencyStorm import FrequencyStorm
 # SCS Type I, IA, II, III Hyetograph Generation
 from .ScsTypeStorm import ScsTypeStorm
 
+# Texas dimensionless hyetographs (empirical, triangular, L-gamma)
+from .TexasStorm import TexasStorm
+
 # Public API exports
 __all__ = [
     # Version
@@ -189,6 +192,9 @@ __all__ = [
 
     # SCS Type Storms
     "ScsTypeStorm",
+
+    # Texas Dimensionless Hyetographs
+    "TexasStorm",
 
     # Logging
     "setup_logging",
