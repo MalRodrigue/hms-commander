@@ -98,8 +98,10 @@ _TABLE7: Dict[str, Tuple[_Segment, ...]] = {
 # Table 4-12 repeats it); this is the default. The S2 intercept in the same row
 # is 0.6880, and in the other 29 rows the ARF intercept equals the S2 intercept
 # (ARF = (2/R^2) * integral of r*S2 dr gives intercept a and slope 2b/3).
-# 0.6880 also makes the ARF continuous at r = 24 mi. It is used only when
-# dallas_intercept_correction=True.
+# 0.6880 makes the ARF approximately continuous at r = 24 mi (a residual of
+# about 0.0003 remains, like the other joins). Because joins select the
+# higher-radius segment, the corrected/printed row applies over 24 <= r < 27.
+# It is used only when dallas_intercept_correction=True.
 _DALLAS_24_27_PRINTED = 0.6800
 _DALLAS_24_27_CORRECTED = 0.6880
 
@@ -239,11 +241,21 @@ class HmsArfTexas:
             extrapolate: Allow r > 50 mi (last published segment, warning).
 
         Returns:
-            S2(r), dimensionless.
+            S2(r), dimensionless, 0 < S2 <= 1.
+
+        Raises:
+            ValueError: bad city or distance, distance > 50 mi with
+                ``extrapolate=False``, or a computed S2 outside (0, 1].
         """
         c = HmsArfTexas._city(city)
         _, _, a, b, *_ = HmsArfTexas._segment(c, float(r_mi), extrapolate, False)
-        return a - b * float(r_mi)
+        s2 = a - b * float(r_mi)
+        if not 0 < s2 <= 1:
+            raise ValueError(
+                f"Computed S2 {s2:.4f} at distance {float(r_mi):.3f} mi is outside "
+                "(0, 1]; the extrapolated relation is not physical here."
+            )
+        return s2
 
     @staticmethod
     @log_call
@@ -306,9 +318,9 @@ class HmsArfTexas:
         _, _, _, _, a, b, k = HmsArfTexas._segment(
             c, r, extrapolate, dallas_intercept_correction
         )
-        if r == 0:
-            return 1.0
-        arf = a - b * r + k / r**2
+        # r -> 0 limit: the first segment has k == 0, so ARF -> a (= 1.0).
+        # Skipping the k term avoids 0/0 when r**2 underflows.
+        arf = a - b * r + (k / r**2 if k != 0 else 0.0)
         if not 0 < arf <= 1:
             raise ValueError(
                 f"Computed ARF {arf:.4f} at radius {r:.3f} mi is outside (0, 1]; "
@@ -342,7 +354,12 @@ class HmsArfTexas:
                 :meth:`circular_arf`.
 
         Returns:
-            Areal-reduction factor, dimensionless.
+            Areal-reduction factor, dimensionless, 0 < ARF <= 1.
+
+        Raises:
+            ValueError: invalid inputs, scope violations as in
+                :meth:`circular_arf`, or any cell's S2 outside (0, 1]
+                (possible only with ``extrapolate=True``).
         """
         c = HmsArfTexas._city(city)
         d = np.asarray(distances_mi, dtype=float)
@@ -358,7 +375,10 @@ class HmsArfTexas:
         s2 = np.array(
             [HmsArfTexas.depth_distance(c, x, extrapolate=extrapolate) for x in d]
         )
-        return float(np.sum(s2 * a) / np.sum(a))
+        arf = float(np.sum(s2 * a) / np.sum(a))
+        if not 0 < arf <= 1:
+            raise ValueError(f"Computed ARF {arf:.4f} is outside (0, 1]")
+        return arf
 
     @staticmethod
     @log_call

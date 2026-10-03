@@ -398,3 +398,32 @@ def test_existing_hmsarf_untouched():
     from hms_commander import HmsArf
 
     assert hasattr(HmsArf, "apply_arf") and not hasattr(HmsArf, "circular_arf")
+
+
+def test_extrapolated_nonphysical_cell_and_depth_distance_raise():
+    with pytest.raises(ValueError):
+        HmsArfTexas.noncircular_arf(
+            "houston",
+            [200, 200],
+            [1, 1],
+            recurrence_interval_yr=100,
+            extrapolate=True,
+        )
+    with pytest.raises(ValueError):
+        HmsArfTexas.noncircular_arf(
+            "houston",
+            [0, 150],
+            [1, 1],
+            recurrence_interval_yr=100,
+            extrapolate=True,
+        )
+    with pytest.raises(ValueError):
+        HmsArfTexas.depth_distance("houston", 200, extrapolate=True)
+
+
+@pytest.mark.parametrize("city", STUDY_AREAS)
+@pytest.mark.parametrize("r", [0, 1e-200, 1e-12])
+def test_radius_zero_limit(city, r):
+    assert HmsArfTexas.circular_arf(
+        city, radius_mi=r, recurrence_interval_yr=100
+    ) == pytest.approx(1.0)
