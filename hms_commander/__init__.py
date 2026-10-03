@@ -113,6 +113,7 @@ from .HmsRoundTripValidator import HmsRoundTripValidator
 
 # Areal Reduction Factors
 from .HmsArf import HmsArf
+from .HmsArfTexas import HmsArfTexas
 
 # Atlas 14 Hyetograph Generation
 from .Atlas14Storm import Atlas14Storm, Atlas14Config
@@ -179,6 +180,7 @@ __all__ = [
 
     # Areal Reduction Factors
     "HmsArf",
+    "HmsArfTexas",
 
     # Atlas 14
     "Atlas14Storm",

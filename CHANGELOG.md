@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `HmsArfTexas`: Texas 1-day areal-reduction factors per Asquith (1999), USGS WRIR 99-4267 (Austin, Dallas, Houston; 1-day, T >= 2 yr, 0-50 mi radius).
+
 ## [0.3.1] - 2026-05-07
 
 ### Added
