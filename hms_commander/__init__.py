@@ -47,7 +47,7 @@ Usage:
     peaks = HmsResults.get_peak_flows("results.dss")
 """
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 __author__ = "CLB Engineering Corporation"
 
 # Core project management
@@ -71,6 +71,9 @@ from .Decorators import log_call, standardize_path
 # GIS extraction
 from .HmsGeo import HmsGeo
 from .HmsSqlite import HmsSqlite
+
+# Pure text information (no project initialization)
+from .HmsText import HmsText
 
 # File operations (Phase 2)
 from .HmsBasin import HmsBasin
@@ -135,6 +138,7 @@ __all__ = [
     "hms",
 
     # File Operations
+    "HmsText",
     "HmsBasin",
     "HmsBasinBuilder",
     "HmsControl",

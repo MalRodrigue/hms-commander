@@ -4,10 +4,20 @@ Central registry for Claude-native components in `hms-commander`.
 
 This file is the Claude-side discovery map only. Shared repository behavior lives in the `AGENTS.md` hierarchy, not in `.claude/`.
 
+## Commander Entry Point
+
+The shared `hms-commander` skill is the canonical intake workflow for both harnesses.
+The Claude `hms-commander` role loads this skill. GIS uses current
+hms2cng contracts; cross-model work routes to the existing HMS-RAS specialist and RAS guidance.
+MCP queries are bounded informational subagent tasks; heavier work uses public Python APIs.
+
 ## HMS Domain Skills
 
 | Component | Type | Path |
 |-----------|------|------|
+| `hms-cloud-native-gis` | shared skill | `.claude/skills/hms-cloud-native-gis/SKILL.md` |
+| `hms-ras-integration` | shared skill | `.claude/skills/hms-ras-integration/SKILL.md` |
+| `hms-commander` | shared skill | `.claude/skills/hms-commander/SKILL.md` |
 | `hms_execute_runs` | skill | `.claude/skills/hms_execute_runs/SKILL.md` |
 | `hms_parse_basin-models` | skill | `.claude/skills/hms_parse_basin-models/SKILL.md` |
 | `hms_update_met-models` | skill | `.claude/skills/hms_update_met-models/SKILL.md` |
@@ -29,7 +39,7 @@ This file is the Claude-side discovery map only. Shared repository behavior live
 
 | Component | Type | Path |
 |-----------|------|------|
-| `hms-orchestrator` | agent | `.claude/agents/hms-orchestrator.md` |
+| `hms-commander` | Claude adapter | `.claude/agents/hms-commander.md` |
 | `basin-model-specialist` | agent | `.claude/agents/basin-model-specialist.md` |
 | `met-model-specialist` | agent | `.claude/agents/met-model-specialist.md` |
 | `run-manager-specialist` | agent | `.claude/agents/run-manager-specialist.md` |
@@ -81,3 +91,7 @@ This file is the Claude-side discovery map only. Shared repository behavior live
 ## Provider-Initiated Legacy Components
 
 Some Claude-native provider orchestration entries, including Gemini-oriented command and agent files, remain for explicit user requests only. They are not part of the shared Claude+Codex contract and must not be exposed through the Codex skill bridge unless a future audited migration explicitly changes that.
+
+## Portable package and release maintenance
+
+The generated skills-only plugin is defined by `.claude/plugin/package.json` and assembled with `scripts/agent_framework/build_plugin.py`. Canonical sources remain `.claude/skills/`. The `hms-ras-workflow-coordinator` adapter and `hms_link_to-ras` skill route through `hms-ras-integration`.
