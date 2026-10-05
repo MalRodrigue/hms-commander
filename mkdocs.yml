@@ -167,6 +167,7 @@ nav:
           - Atlas14Storm / Atlas14Config: api/atlas14_storm.md
           - FrequencyStorm: api/frequency_storm.md
           - ScsTypeStorm: api/scs_type_storm.md
+          - TexasStorm: api/texas_storm.md
       - Utilities:
           - HmsUtils: api/hms_utils.md
           - HmsExamples: api/hms_examples.md
