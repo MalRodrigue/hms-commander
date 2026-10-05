@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `HmsArfTexas`: Texas 1-day areal-reduction factors per Asquith (1999), USGS WRIR 99-4267 (Austin, Dallas, Houston; 1-day, T >= 2 yr, 0-50 mi radius).
+  Reproduces WRIR Table 7 as printed by default; `dallas_intercept_correction=True` uses 0.6880 for the Dallas 24-27 mi ARF intercept (printed 0.6800). With `extrapolate=True`, an ARF or S2 outside (0, 1] raises `ValueError` from `circular_arf`, `noncircular_arf` and `depth_distance` (and so `scale_depth`/`scale_hyetograph`). Radius 0 or a tiny radius returns the r = 0 limit (1.0). The Dallas correction makes the ARF approximately continuous at r = 24 mi (residual about 0.0003) and applies over 24 <= r < 27 mi.
+  Circular radius/area and scaling depth inputs must be finite and nonnegative; noncircular cell areas must also be positive and otherwise raise `ValueError`. Invalid numeric inputs, including bools, strings, and values outside the float64 range, raise `ValueError`.
+- **TexasStorm** (`TexasStorm.generate_hyetograph`) for Texas dimensionless hyetographs: empirical curves (USGS SIR 2004-5075, Supplements 4-5), triangular and L-gamma models (TxDOT 0-4194-4; HDM 2019 Eq. 4-26 to 4-28).
+  - `nonmonotone="raise"` (default) or `"running_max"` for the eight published empirical columns that decrease with time; `running_max` records the number of adjusted ordinates and the maximum adjustment (up to 1.09 percent points) in the provenance.
+  - `total_depth_inches`, `duration_hours` and `drainage_area_sqmi` must be finite and positive.
+  - The 160 mi2 warning applies to the empirical method only (SIR 2004-5075; HDM p. 4-77).
+  - Docs state the HDM recommendation (`quartile="all"`, `duration_class="0-72"`), the HDM Table 4-16 8.70 vs SIR 6.37 value at 2.5 percent, the added (0, 0) and (100, 100) end points, and that `nws_hourly` durations of 12-13 hr, 24-25 hr and under 5 hr are unsupported.
 - `BalancedFrequencyStorm` - HEC-HMS Frequency Storm (balanced/alternating-block) hyetograph generator validated against HEC-HMS 4.13 output. Existing `FrequencyStorm` is unchanged.
 
 ## [0.4.0] - 2026-10-04

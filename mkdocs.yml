@@ -168,6 +168,7 @@ nav:
           - FrequencyStorm: api/frequency_storm.md
           - BalancedFrequencyStorm: api/balanced_frequency_storm.md
           - ScsTypeStorm: api/scs_type_storm.md
+          - TexasStorm: api/texas_storm.md
       - Utilities:
           - HmsUtils: api/hms_utils.md
           - HmsExamples: api/hms_examples.md

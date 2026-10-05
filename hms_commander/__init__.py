@@ -116,6 +116,7 @@ from .HmsRoundTripValidator import HmsRoundTripValidator
 
 # Areal Reduction Factors
 from .HmsArf import HmsArf
+from .HmsArfTexas import HmsArfTexas
 
 # Atlas 14 Hyetograph Generation
 from .Atlas14Storm import Atlas14Storm, Atlas14Config
@@ -128,6 +129,9 @@ from .BalancedFrequencyStorm import BalancedFrequencyStorm
 
 # SCS Type I, IA, II, III Hyetograph Generation
 from .ScsTypeStorm import ScsTypeStorm
+
+# Texas dimensionless hyetographs (empirical, triangular, L-gamma)
+from .TexasStorm import TexasStorm
 
 # Public API exports
 __all__ = [
@@ -175,6 +179,8 @@ __all__ = [
     "HmsRoundTripValidator",
     # Areal Reduction Factors
     "HmsArf",
+    "HmsArfTexas",
+
     # Atlas 14
     "Atlas14Storm",
     "Atlas14Config",
@@ -183,6 +189,8 @@ __all__ = [
     "BalancedFrequencyStorm",
     # SCS Type Storms
     "ScsTypeStorm",
+    # Texas Dimensionless Hyetographs
+    "TexasStorm",
     # Logging
     "setup_logging",
     "get_logger",
@@ -194,6 +202,10 @@ __all__ = [
     "CRITICAL",
     # Decorators
     "standardize_path",
+    # Output Parsing
+    "HmsOutput",
+    "HmsMessage",
+    "ComputeResult",
 ]
 
 # Output Parsing

@@ -70,7 +70,7 @@ Core areas:
 - Data/results: `HmsDss`, `HmsResults`
 - Utilities/examples: `HmsUtils`, `HmsExamples`, `HmsM3Model`
 - AORC/HUC/grids: `HmsHuc`, `HmsAorc`, `HmsGrid`, `HmsDssGrid`
-- Storm generation: `Atlas14Storm`, `FrequencyStorm`
+- Storm generation: `Atlas14Storm`, `FrequencyStorm`, `ScsTypeStorm`, `TexasStorm`
 - Project state: `HmsPrj`, `init_hms_project`, global `hms`
 
 ## Environment
